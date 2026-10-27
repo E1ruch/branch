@@ -11,7 +11,17 @@ public final class AppEnvironment {
     public let client: APIClient
     public let tokens: TokenStore
     public let session: SessionStore
+    public let features = Features()
     let router = AppRouter()
+
+    /// Switches for things that depend on how the app is signed or deployed.
+    public struct Features: Sendable {
+        /// Sign in with Apple needs a paid developer team: personal (free)
+        /// teams cannot sign an app with its entitlement. To turn it on:
+        /// set CODE_SIGN_ENTITLEMENTS = Config/Vetka.entitlements for the app
+        /// target, pick the paid team in Signing, and flip this to true.
+        public var signInWithApple = false
+    }
 
     init(client: APIClient, tokens: TokenStore, session: SessionStore) {
         self.client = client

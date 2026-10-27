@@ -8,13 +8,15 @@ import SwiftUI
 public struct AuthFlowView: View {
     private let client: APIClient
     private let session: SessionStore
+    private let showsSignInWithApple: Bool
     @State private var signIn: SignInModel
     @State private var onboarding: OnboardingModel?
     @Environment(\.dismiss) private var dismiss
 
-    public init(client: APIClient, session: SessionStore) {
+    public init(client: APIClient, session: SessionStore, showsSignInWithApple: Bool) {
         self.client = client
         self.session = session
+        self.showsSignInWithApple = showsSignInWithApple
         _signIn = State(initialValue: SignInModel(client: client, session: session))
     }
 
@@ -25,7 +27,7 @@ public struct AuthFlowView: View {
                     OnboardingView(model: onboarding)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else {
-                    SignInView(model: signIn)
+                    SignInView(model: signIn, showsSignInWithApple: showsSignInWithApple)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Закрыть") { dismiss() }

@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Sign in with Apple. Works on a device or a simulator signed into an
-	     Apple ID, with a paid developer team that has the capability. -->
+	<!-- Sign in with Apple. Not linked to the target yet: a personal (free)
+	     team cannot sign an app with it. With a paid team set
+	     CODE_SIGN_ENTITLEMENTS = Config/Vetka.entitlements and turn on
+	     AppEnvironment.Features.signInWithApple. -->
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>

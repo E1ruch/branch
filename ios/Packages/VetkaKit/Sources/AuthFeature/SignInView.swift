@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SignInView: View {
     @Bindable var model: SignInModel
+    let showsSignInWithApple: Bool
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focus: Field?
 
@@ -28,21 +29,23 @@ struct SignInView: View {
 
                 passwordForm
 
-                HStack {
-                    VStack { Divider() }
-                    Text("или").font(.footnote).foregroundStyle(Color.vetkaSecondaryText)
-                    VStack { Divider() }
-                }
+                if showsSignInWithApple {
+                    HStack {
+                        VStack { Divider() }
+                        Text("или").font(.footnote).foregroundStyle(Color.vetkaSecondaryText)
+                        VStack { Divider() }
+                    }
 
-                SignInWithAppleButton(.signIn) { request in
-                    model.prepare(request)
-                } onCompletion: { result in
-                    Task { await model.complete(result) }
+                    SignInWithAppleButton(.signIn) { request in
+                        model.prepare(request)
+                    } onCompletion: { result in
+                        Task { await model.complete(result) }
+                    }
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .disabled(model.isWorking)
                 }
-                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                .frame(height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                .disabled(model.isWorking)
 
                 if let error = model.error {
                     Text(error)

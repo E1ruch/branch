@@ -35,7 +35,8 @@ public struct AppRootView: View {
         }
         .onOpenURL { router.open($0) }
         .sheet(isPresented: $router.isAuthPresented) {
-            AuthFlowView(client: app.client, session: app.session)
+            AuthFlowView(client: app.client, session: app.session,
+                         showsSignInWithApple: app.features.signInWithApple)
         }
         .task {
             Haptics.prepare()
