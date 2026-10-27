@@ -16,3 +16,7 @@ coverage.out
 .env
 *.env
 !*.env.example
+
+# The Xcode scheme holds per-machine settings (VETKA_API_URL with the Mac's
+# Wi-Fi address for running on a phone).
+ios/branch.xcodeproj/xcshareddata/xcschemes/branch.xcscheme

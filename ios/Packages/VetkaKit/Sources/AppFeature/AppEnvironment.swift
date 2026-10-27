@@ -47,13 +47,25 @@ public final class AppEnvironment {
         return AppEnvironment(client: client, tokens: tokens, session: session)
     }
 
-    /// VETKA_API_URL (set in the Xcode scheme) points a device at a Mac on
-    /// the local network; the simulator reaches the Mac's localhost directly.
+    /// Where the API is.
+    ///
+    /// The simulator reaches the Mac's localhost directly. A phone needs the
+    /// Mac's address on the Wi-Fi: set VETKA_API_URL=http://<Mac IP>:8080 in
+    /// the Xcode scheme (Run → Arguments → Environment Variables) and run once.
+    /// Scheme variables only exist while Xcode launches the app, so a debug
+    /// build remembers the value: later launches from the home screen keep
+    /// talking to the same Mac.
     private static func apiBaseURL() -> URL {
-        if let override = ProcessInfo.processInfo.environment["VETKA_API_URL"], let url = URL(string: override) {
+        #if DEBUG
+        let savedKey = "dev.apiBaseURL"
+        let defaults = UserDefaults.standard
+        if let value = ProcessInfo.processInfo.environment["VETKA_API_URL"], let url = URL(string: value) {
+            defaults.set(value, forKey: savedKey)
             return url
         }
-        #if DEBUG
+        if let value = defaults.string(forKey: savedKey), let url = URL(string: value) {
+            return url
+        }
         return URL(string: "http://localhost:8080")!
         #else
         return URL(string: "https://api.vetka.app")! // TODO: the real domain

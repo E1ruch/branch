@@ -16,6 +16,10 @@
 			</array>
 		</dict>
 	</array>
+	<!-- iOS asks before an app talks to devices on the Wi-Fi; a debug build
+	     on a phone does, to reach the backend on the Mac. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Нужно, чтобы подключиться к серверу разработки на вашем компьютере.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Plain HTTP to localhost and the local network only: the dev
