@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // Every error has the same shape: {"error": {"code": "...", "message": "..."}}.
@@ -25,4 +28,24 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorBody{Error: apiError{Code: code, Message: message}})
+}
+
+// internalError logs the real cause and hides it from the client.
+func internalError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
+	log.ErrorContext(r.Context(), "request failed",
+		slog.Any("err", err),
+		slog.String("request_id", middleware.GetReqID(r.Context())),
+	)
+	writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+}
+
+// decodeJSON reads a small JSON body. Unknown fields are allowed so older
+// servers accept requests from newer app versions.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "malformed JSON body")
+		return false
+	}
+	return true
 }
