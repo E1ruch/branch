@@ -1,6 +1,7 @@
 import AuthFeature
 import CommunitiesFeature
 import Core
+import FeedFeature
 import DesignSystem
 import Networking
 import Session
@@ -21,7 +22,12 @@ public struct AppRootView: View {
 
     public var body: some View {
         TabView(selection: router.tabSelection) {
-            stack(.feed) { FeedPlaceholderView() }
+            stack(.feed) {
+                FeedScreen(service: LiveFeedService(client: app.client),
+                           isSignedIn: app.session.state == .signedIn,
+                           open: { router.push($0) },
+                           requestSignIn: { router.isAuthPresented = true })
+            }
                 .tabItem { Label("Лента", systemImage: "flame") }
                 .tag(Tab.feed)
 
@@ -84,14 +90,6 @@ struct Placeholder: View {
         ContentUnavailableView(title, systemImage: systemImage, description: Text(note))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct FeedPlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView("Лента", systemImage: "flame",
-                               description: Text("Горячее, новое и подписки на UICollectionView — следующий модуль."))
-            .navigationTitle("Ветка")
     }
 }
 

@@ -170,3 +170,13 @@ public struct UsernameAvailability: Decodable, Sendable, Hashable {
     /// Why an invalid name is invalid, from the server's rules.
     public let message: String?
 }
+
+extension Post {
+    /// A copy with the viewer's vote changed: optimistic UI applies it
+    /// before the server confirms.
+    public func with(myVote: Int, score: Int) -> Post {
+        Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
+             score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
+             editedAt: editedAt, community: community, author: author)
+    }
+}
