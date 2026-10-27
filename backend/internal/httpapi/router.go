@@ -13,6 +13,7 @@ import (
 	"vetka/internal/community"
 	"vetka/internal/post"
 	"vetka/internal/user"
+	"vetka/internal/vote"
 )
 
 type Deps struct {
@@ -24,6 +25,7 @@ type Deps struct {
 	Users       *user.Store
 	Communities *community.Service
 	Posts       *post.Service
+	Votes       *vote.Service
 
 	TelegramBot   string // bot username for the login widget; empty disables it
 	PublicBaseURL string // where the API is reachable from a browser
@@ -35,6 +37,7 @@ func NewRouter(d Deps) http.Handler {
 	meH := &meHandlers{users: d.Users, log: d.Logger}
 	commH := &communityHandlers{svc: d.Communities, log: d.Logger}
 	postH := &postHandlers{svc: d.Posts, log: d.Logger}
+	voteH := &voteHandlers{svc: d.Votes, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
 
 	r := chi.NewRouter()
@@ -81,6 +84,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", postH.get)
 				r.With(requireAuth).Patch("/", postH.edit)
 				r.With(requireAuth).Delete("/", postH.delete)
+				r.With(requireAuth).Put("/vote", voteH.votePost)
 			})
 
 			r.Route("/communities", func(r chi.Router) {

@@ -25,6 +25,7 @@ type postDTO struct {
 	IsNSFW        bool           `json:"is_nsfw"`
 	Score         int            `json:"score"`
 	CommentCount  int            `json:"comment_count"`
+	MyVote        int            `json:"my_vote"`
 	CreatedAt     time.Time      `json:"created_at"`
 	EditedAt      *time.Time     `json:"edited_at"`
 	Community     postCommunity  `json:"community"`
@@ -52,6 +53,7 @@ func toPostDTO(p post.Post) postDTO {
 		IsNSFW:        p.IsNSFW,
 		Score:         p.Score,
 		CommentCount:  p.CommentCount,
+		MyVote:        p.MyVote,
 		CreatedAt:     p.CreatedAt,
 		EditedAt:      p.EditedAt,
 		Community:     postCommunity{ID: p.Community.ID, Slug: p.Community.Slug, Title: p.Community.Title},
@@ -80,7 +82,7 @@ func feedQuery(w http.ResponseWriter, r *http.Request) (post.FeedQuery, bool) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return post.FeedQuery{}, false
 	}
-	q := post.FeedQuery{Sort: sort, Limit: limit}
+	q := post.FeedQuery{Sort: sort, Limit: limit, Viewer: viewer(r)}
 	if has {
 		q.After = &cur
 	}
@@ -142,7 +144,7 @@ func (h *postHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p, err := h.svc.Get(r.Context(), id)
+	p, err := h.svc.Get(r.Context(), id, viewer(r))
 	h.respond(w, r, http.StatusOK, p, err)
 }
 

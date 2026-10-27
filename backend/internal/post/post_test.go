@@ -135,7 +135,7 @@ func TestEditAndDelete(t *testing.T) {
 			t.Fatalf("delete: %v", err)
 		}
 	}
-	if _, err := e.svc.Get(e.ctx, p.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := e.svc.Get(e.ctx, p.ID, 0); !errors.Is(err, ErrNotFound) {
 		t.Errorf("deleted post is still visible: %v", err)
 	}
 	if _, err := e.svc.Edit(e.ctx, p.ID, author, "x"); !errors.Is(err, ErrNotFound) {
@@ -153,7 +153,7 @@ func TestDeletedAuthorIsHidden(t *testing.T) {
 	p, _ := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "x"})
 	e.db.Exec(e.ctx, `UPDATE users SET deleted_at = now() WHERE id = $1`, author)
 
-	got, err := e.svc.Get(e.ctx, p.ID)
+	got, err := e.svc.Get(e.ctx, p.ID, 0)
 	if err != nil || got.Author != nil {
 		t.Errorf("author of a deleted account must be nil: %+v, %v", got.Author, err)
 	}
@@ -259,7 +259,7 @@ func TestFeedShowsPreviewAndPostShowsFullBody(t *testing.T) {
 		t.Errorf("short post in feed: %+v", sp)
 	}
 
-	full, err := e.svc.Get(e.ctx, p.ID)
+	full, err := e.svc.Get(e.ctx, p.ID, 0)
 	if err != nil || full.BodyTruncated || full.Body != long {
 		t.Errorf("full post: truncated=%v len=%d, %v", full.BodyTruncated, len([]rune(full.Body)), err)
 	}

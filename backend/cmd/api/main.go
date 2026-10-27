@@ -22,6 +22,7 @@ import (
 	"vetka/internal/platform/redis"
 	"vetka/internal/post"
 	"vetka/internal/user"
+	"vetka/internal/vote"
 )
 
 func main() {
@@ -85,6 +86,7 @@ func run() error {
 			Users:         user.NewStore(db),
 			Communities:   community.NewService(db),
 			Posts:         post.NewService(db, redis.Limiter{Client: rdb}),
+			Votes:         vote.NewService(db, redis.Limiter{Client: rdb}),
 			TelegramBot:   cfg.TelegramBotUsername,
 			PublicBaseURL: cfg.PublicBaseURL,
 			AppScheme:     cfg.AppScheme,

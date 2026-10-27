@@ -38,9 +38,10 @@ func CursorAfter(p Post) Cursor {
 }
 
 type FeedQuery struct {
-	Sort  Sort
-	After *Cursor // nil for the first page
-	Limit int
+	Sort   Sort
+	After  *Cursor // nil for the first page
+	Limit  int
+	Viewer int64 // fills MyVote; 0 = anonymous
 }
 
 // keyset returns the WHERE and ORDER BY fragments for the sort, with its
@@ -80,7 +81,7 @@ func (s *Service) collect(ctx context.Context, sql string, args []any) ([]Post, 
 // FeedAll is the front page. NSFW posts stay out of it: App Store rules
 // require such content to be hidden unless the user opted in.
 func (s *Service) FeedAll(ctx context.Context, q FeedQuery) ([]Post, error) {
-	where, order, args := keyset(q, nil)
+	where, order, args := keyset(q, []any{q.Viewer})
 	args = append(args, q.Limit)
 	sql := fmt.Sprintf(selectPost(true), "posts") + `
 		WHERE p.deleted_at IS NULL AND NOT p.is_nsfw AND ` + where + `
@@ -100,10 +101,10 @@ func (s *Service) FeedCommunity(ctx context.Context, slug string, q FeedQuery) (
 		return nil, err
 	}
 
-	where, order, args := keyset(q, []any{communityID})
+	where, order, args := keyset(q, []any{q.Viewer, communityID})
 	args = append(args, q.Limit)
 	sql := fmt.Sprintf(selectPost(true), "posts") + `
-		WHERE p.deleted_at IS NULL AND p.community_id = $1 AND ` + where + `
+		WHERE p.deleted_at IS NULL AND p.community_id = $2 AND ` + where + `
 		ORDER BY ` + order + fmt.Sprintf(" LIMIT $%d", len(args))
 	return s.collect(ctx, sql, args)
 }
@@ -112,6 +113,8 @@ func (s *Service) FeedCommunity(ctx context.Context, slug string, q FeedQuery) (
 // LATERAL subquery takes only its top `limit` posts from the per-community
 // index, then those few rows are merged: the cost grows with the number of
 // subscriptions, not with the number of posts in them.
+//
+// The subscriber is the viewer: q.Viewer is ignored and userID fills $1.
 func (s *Service) FeedSubscriptions(ctx context.Context, userID int64, q FeedQuery) ([]Post, error) {
 	where, order, args := keyset(q, []any{userID})
 	args = append(args, q.Limit)

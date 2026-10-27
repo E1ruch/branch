@@ -44,6 +44,7 @@ type Post struct {
 	IsNSFW        bool
 	Score         int
 	CommentCount  int
+	MyVote        int // the viewer's vote: -1, 0 or 1
 	HotRank       float64
 	CreatedAt     time.Time
 	EditedAt      *time.Time
@@ -85,6 +86,10 @@ func NewService(db *pgxpool.Pool, limiter Limiter) *Service {
 // selectPost is shared by single-post reads and feeds. Feeds get a preview
 // of the body: cells show a few lines, and shipping up to 40k characters per
 // post would bloat every page and its decoding on the phone.
+//
+// $1 is always the viewer (0 = anonymous, matches no vote). The vote comes
+// from the (user_id, post_id) primary key in the same query, so a page of 25
+// posts with the viewer's votes is still one round trip.
 func selectPost(preview bool) string {
 	body := "p.body, false"
 	if preview {
@@ -93,12 +98,13 @@ func selectPost(preview bool) string {
 	}
 	return `
 	SELECT p.id, p.title, ` + body + `,
-	       p.is_nsfw, p.score, p.comment_count, p.hot_rank, p.created_at, p.edited_at,
+	       p.is_nsfw, p.score, p.comment_count, COALESCE(v.value, 0), p.hot_rank, p.created_at, p.edited_at,
 	       c.id, c.slug, c.title,
 	       u.id, u.username, u.display_name
 	FROM %s p
 	JOIN communities c ON c.id = p.community_id
-	LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL`
+	LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL
+	LEFT JOIN post_votes v ON v.post_id = p.id AND v.user_id = $1`
 }
 
 func scan(row pgx.Row) (Post, error) {
@@ -109,7 +115,7 @@ func scan(row pgx.Row) (Post, error) {
 		displayName *string
 	)
 	err := row.Scan(&p.ID, &p.Title, &p.Body, &p.BodyTruncated,
-		&p.IsNSFW, &p.Score, &p.CommentCount, &p.HotRank, &p.CreatedAt, &p.EditedAt,
+		&p.IsNSFW, &p.Score, &p.CommentCount, &p.MyVote, &p.HotRank, &p.CreatedAt, &p.EditedAt,
 		&p.Community.ID, &p.Community.Slug, &p.Community.Title,
 		&authorID, &username, &displayName)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -124,9 +130,10 @@ func scan(row pgx.Row) (Post, error) {
 	return p, nil
 }
 
-func (s *Service) Get(ctx context.Context, id int64) (Post, error) {
+// Get returns the post as viewer sees it (viewer 0 = anonymous).
+func (s *Service) Get(ctx context.Context, id, viewer int64) (Post, error) {
 	return scan(s.db.QueryRow(ctx,
-		fmt.Sprintf(selectPost(false), "posts")+` WHERE p.id = $1 AND p.deleted_at IS NULL`, id))
+		fmt.Sprintf(selectPost(false), "posts")+` WHERE p.id = $2 AND p.deleted_at IS NULL`, viewer, id))
 }
 
 type CreateInput struct {
@@ -176,7 +183,7 @@ func (s *Service) Create(ctx context.Context, authorID int64, communitySlug stri
 	).Scan(&id); err != nil {
 		return Post{}, err
 	}
-	return s.Get(ctx, id)
+	return s.Get(ctx, id, authorID)
 }
 
 // Edit replaces the body. Titles are immutable: votes and comments were given
@@ -194,7 +201,7 @@ func (s *Service) Edit(ctx context.Context, id, userID int64, body string) (Post
 		id, body, s.now()); err != nil {
 		return Post{}, err
 	}
-	return s.Get(ctx, id)
+	return s.Get(ctx, id, userID)
 }
 
 // Delete hides the post (soft delete keeps comment threads intact).
