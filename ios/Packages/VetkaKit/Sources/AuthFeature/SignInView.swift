@@ -50,7 +50,7 @@ struct SignInView: View {
                 if let error = model.error {
                     Text(error)
                         .font(.callout)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.vetkaDanger)
                         .multilineTextAlignment(.center)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                         .accessibilityIdentifier("auth.error")
@@ -97,14 +97,11 @@ struct SignInView: View {
                     Text(model.mode == .login ? "Войти" : "Создать аккаунт")
                         .opacity(model.isWorking ? 0 : 1)
                     if model.isWorking {
-                        ProgressView().tint(.white)
+                        ProgressView()
                     }
                 }
-                .font(.headline)
-                .frame(maxWidth: .infinity, minHeight: 50)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: Radius.card))
+            .buttonStyle(.vetkaPrimary())
             .disabled(!model.canSubmit)
             .accessibilityIdentifier("auth.submit")
         }

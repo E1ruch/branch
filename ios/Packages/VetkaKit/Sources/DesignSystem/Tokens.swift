@@ -23,20 +23,31 @@ public extension Animation {
 }
 
 public extension Color {
-    static let vetkaBackground = Color(uiColor: .systemBackground)
-    static let vetkaGroupedBackground = Color(uiColor: .systemGroupedBackground)
-    static let vetkaSecondaryText = Color(uiColor: .secondaryLabel)
-    static let vetkaSkeleton = Color(uiColor: .tertiarySystemFill)
+    static let vetkaBackground = Color(uiColor: Palette.background)
+    static let vetkaGroupedBackground = Color(uiColor: Palette.background)
+    static let vetkaSecondaryText = Color(uiColor: Palette.textSecondary)
+    static let vetkaSkeleton = Color(uiColor: Palette.surfaceTertiary)
     /// Text field background.
-    static let vetkaField = Color(uiColor: .tertiarySystemFill)
-    static let vetkaUpvote = Color.orange
-    static let vetkaDownvote = Color.indigo
+    static let vetkaField = Color(uiColor: Palette.surfaceSecondary)
+    static let vetkaUpvote = Color(uiColor: Palette.voteUp)
+    static let vetkaDownvote = Color(uiColor: Palette.voteDown)
 }
 
 public extension Int {
-    /// "1,2 тыс." / "3,4 млн" in the user's locale: counters stay short.
+    /// 950 → "950", 12 400 → "12,4k", 156 000 → "156k", 3 450 000 → "3,4M": short enough for
+    /// the vote row, with the locale's decimal separator.
     var compactFormatted: String {
-        formatted(.number.notation(.compactName))
+        let value = Double(abs(self))
+        let sign = self < 0 ? "−" : ""
+        let (scaled, suffix): (Double, String) = switch value {
+        case ..<1000: (value, "")
+        case ..<1_000_000: (value / 1000, "k")
+        default: (value / 1_000_000, "M")
+        }
+        guard !suffix.isEmpty else { return sign + String(Int(value)) }
+        let digits = scaled < 100 ? 1 : 0
+        let number = (scaled * pow(10, Double(digits))).rounded(.down) / pow(10, Double(digits))
+        return sign + number.formatted(.number.precision(.fractionLength(0...digits))) + suffix
     }
 }
 

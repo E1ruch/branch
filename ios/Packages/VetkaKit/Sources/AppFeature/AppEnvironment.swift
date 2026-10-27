@@ -27,6 +27,7 @@ public final class AppEnvironment {
         self.client = client
         self.tokens = tokens
         self.session = session
+        router.isSignedIn = { [weak session] in session?.state == .signedIn }
     }
 
     public static func live() -> AppEnvironment {

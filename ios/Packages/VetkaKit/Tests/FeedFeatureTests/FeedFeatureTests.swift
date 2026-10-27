@@ -1,4 +1,5 @@
 import Core
+@testable import DesignSystem
 import Foundation
 import Networking
 import Testing
@@ -45,11 +46,53 @@ func makePost(_ id: Int64, title: String = "Заголовок", body: String = 
 
     @Test func headerAndAge() throws {
         let now = Date()
-        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-30), now: now) == "сейчас")
-        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-300), now: now) == "5 мин")
-        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-7200), now: now) == "2 ч")
-        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-86400 * 3), now: now) == "3 д")
-        #expect(PostLayout.headerText(for: try makePost(1, age: 7200), now: now) == "Котики · ivan · 2 ч")
+        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-30), now: now) == "только что")
+        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-300), now: now) == "5 мин назад")
+        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-7200), now: now) == "2 ч назад")
+        #expect(PostLayout.relativeAge(from: now.addingTimeInterval(-86400 * 3), now: now) == "3 д назад")
+        let layout = PostLayout.make(for: try makePost(1, age: 7200), width: 390, fonts: fonts, now: now)
+        #expect(layout.author == "ivan" && layout.meta == "2 ч назад · Котики")
+    }
+
+    @Test func headerSitsBesideTheAvatarAndTheGapFollowsThePost() throws {
+        let layout = PostLayout.make(for: try makePost(1, body: "текст"), width: 390, fonts: fonts)
+        #expect(layout.authorFrame.minX > layout.avatarFrame.maxX)
+        #expect(layout.authorFrame.maxX <= layout.moreFrame.minX)
+        #expect(layout.titleFrame.minY >= layout.avatarFrame.maxY)
+        #expect(layout.height == layout.contentHeight + PostLayout.gap)
+    }
+}
+
+@Suite struct SwipeVoteTests {
+    @Test func shortDragsDoNothing() {
+        #expect(SwipeVote.direction(for: 40) == nil)
+        #expect(SwipeVote.direction(for: -71) == nil)
+    }
+
+    @Test func rightIsForLeftIsAgainst() {
+        #expect(SwipeVote.direction(for: 90) == 1)
+        #expect(SwipeVote.direction(for: -90) == -1)
+    }
+
+    @Test func dragResistsPastTheThreshold() {
+        #expect(SwipeVote.offset(for: 50) == 50)
+        #expect(SwipeVote.offset(for: SwipeVote.threshold + 30) == SwipeVote.threshold + 10)
+        #expect(SwipeVote.offset(for: -(SwipeVote.threshold + 30)) == -(SwipeVote.threshold + 10))
+    }
+}
+
+@Suite struct DesignSystemTests {
+    @Test(arguments: [(950, "950"), (1000, "1k"), (12_400, "12,4k"), (156_700, "156k"), (9_950, "9,9k"), (3_450_000, "3,4M"), (-1200, "−1,2k")])
+    func compactCounters(value: Int, text: String) {
+        // Decimal separator follows the locale; the tests run with Russian ones in mind.
+        #expect(value.compactFormatted.replacingOccurrences(of: ".", with: ",") == text)
+    }
+
+    @Test func avatarColorIsStableAcrossLaunches() {
+        // The published FNV-1a 64 value for "a": the same on every launch,
+        // unlike String.hashValue, which is seeded per process.
+        #expect(Palette.stableHash("a") == 0xaf63_dc4c_8601_ec8c)
+        #expect(Palette.avatarColor(for: "ivan") == Palette.avatarColor(for: "ivan"))
     }
 }
 

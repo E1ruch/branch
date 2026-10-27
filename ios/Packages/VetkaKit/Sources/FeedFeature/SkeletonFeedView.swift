@@ -1,3 +1,4 @@
+import DesignSystem
 import UIKit
 
 /// Placeholder posts shown while the first page loads, shaped like the real
@@ -9,7 +10,7 @@ final class SkeletonFeedView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .systemBackground
+        backgroundColor = Palette.surface
         isUserInteractionEnabled = false
         layer.addSublayer(blocks)
         shimmer.colors = [UIColor.clear.cgColor, UIColor.white.withAlphaComponent(0.35).cgColor, UIColor.clear.cgColor]
@@ -27,16 +28,24 @@ final class SkeletonFeedView: UIView {
         super.layoutSubviews()
         let path = UIBezierPath()
         let inset: CGFloat = 16
-        var y: CGFloat = 16
         let width = bounds.width - inset * 2
+        var y: CGFloat = 14
+        // One placeholder per post, shaped like PostCell: avatar and two
+        // lines, title, body, footer, then the gap.
         while y < bounds.height {
-            for (w, h, gap) in [(0.45, 12.0, 10.0), (0.9, 18.0, 8.0), (0.7, 18.0, 12.0), (1.0, 14.0, 6.0), (0.85, 14.0, 16.0), (0.3, 16.0, 26.0)] {
+            path.append(UIBezierPath(ovalIn: CGRect(x: inset, y: y, width: 36, height: 36)))
+            path.append(UIBezierPath(roundedRect: CGRect(x: inset + 46, y: y + 4, width: width * 0.32, height: 12), cornerRadius: 6))
+            path.append(UIBezierPath(roundedRect: CGRect(x: inset + 46, y: y + 22, width: width * 0.22, height: 10), cornerRadius: 5))
+            y += 48
+            for (w, h, gap) in [(0.92, 18.0, 6.0), (0.6, 18.0, 12.0), (1.0, 13.0, 6.0), (0.95, 13.0, 6.0), (0.7, 13.0, 16.0)] {
                 path.append(UIBezierPath(roundedRect: CGRect(x: inset, y: y, width: width * w, height: h), cornerRadius: 6))
                 y += h + gap
             }
+            path.append(UIBezierPath(roundedRect: CGRect(x: inset, y: y, width: 96, height: 18), cornerRadius: 6))
+            y += 18 + 34
         }
         blocks.path = path.cgPath
-        blocks.fillColor = UIColor.tertiarySystemFill.resolvedColor(with: traitCollection).cgColor
+        blocks.fillColor = Palette.surfaceTertiary.resolvedColor(with: traitCollection).cgColor
 
         shimmer.frame = bounds
         shimmer.mask = {

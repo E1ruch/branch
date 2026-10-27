@@ -15,6 +15,9 @@ public final class CommunitiesModel {
 
     public private(set) var items: [Community] = []
     public private(set) var phase: Phase = .loading
+    public var query = ""
+    /// Search results for `query`; nil while the field is empty.
+    public private(set) var results: [Community]?
 
     private var nextCursor: String?
     private var isLoadingMore = false
@@ -45,6 +48,24 @@ public final class CommunitiesModel {
             if items.isEmpty {
                 phase = .failed(error)
             }
+        }
+    }
+
+    /// Runs from `.task(id: query)`: typing cancels the previous run, so a
+    /// word typed in one go costs one request.
+    public func search() async {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard text.count >= 2 else {
+            results = nil
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(300))
+        } catch {
+            return
+        }
+        if let page = try? await client.send(API.searchCommunities(text)), text == query.trimmingCharacters(in: .whitespaces) {
+            results = page.items
         }
     }
 

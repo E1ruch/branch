@@ -5,6 +5,8 @@ import SwiftUI
 
 public struct CommunitiesView: View {
     @State private var model: CommunitiesModel
+    // `@State` holds an @Observable model; bindings need @Bindable.
+    private var bindable: Bindable<CommunitiesModel> { Bindable(model) }
 
     public init(client: APIClient) {
         _model = State(initialValue: CommunitiesModel(client: client))
@@ -12,8 +14,10 @@ public struct CommunitiesView: View {
 
     public var body: some View {
         content
-            .navigationTitle("Сообщества")
+            .navigationTitle("Поиск")
+            .searchable(text: bindable.query, prompt: "Сообщества")
             .task { await model.load() }
+            .task(id: model.query) { await model.search() }
     }
 
     @ViewBuilder
@@ -31,9 +35,28 @@ public struct CommunitiesView: View {
                 Text("Проверьте соединение и попробуйте ещё раз.")
             } actions: {
                 Button("Повторить") { Task { await model.load() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.vetkaPrimary(fullWidth: false))
             }
         default:
+            if let results = model.results {
+                List(results) { community in
+                    NavigationLink(value: Route.community(slug: community.slug)) {
+                        CommunityRow(community: community)
+                    }
+                }
+                .listStyle(.plain)
+                .overlay {
+                    if results.isEmpty {
+                        ContentUnavailableView.search(text: model.query)
+                    }
+                }
+            } else {
+                popular
+            }
+        }
+    }
+
+    private var popular: some View {
             List(model.items) { community in
                 NavigationLink(value: Route.community(slug: community.slug)) {
                     CommunityRow(community: community)
@@ -48,7 +71,6 @@ public struct CommunitiesView: View {
                                            description: Text("Сообществ ещё нет — создайте первое."))
                 }
             }
-        }
     }
 }
 
@@ -57,7 +79,7 @@ struct CommunityRow: View {
 
     var body: some View {
         HStack(spacing: Spacing.m) {
-            Avatar(letter: community.title.first)
+            AvatarView(name: community.title, size: 44)
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(community.title)
                     .font(.headline)
@@ -70,7 +92,7 @@ struct CommunityRow: View {
             Spacer(minLength: 0)
             if community.isSubscribed {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Color.vetkaBrand)
                     .accessibilityLabel("Вы подписаны")
             }
         }
@@ -89,22 +111,5 @@ struct CommunityRowSkeleton: View {
         }
         .padding(.vertical, Spacing.xs)
         .listRowSeparator(.hidden)
-    }
-}
-
-/// A letter avatar until communities get icons (media module).
-struct Avatar: View {
-    let letter: Character?
-
-    var body: some View {
-        Circle()
-            .fill(.tint.opacity(0.15))
-            .frame(width: 40, height: 40)
-            .overlay {
-                Text(letter.map { String($0).uppercased() } ?? "?")
-                    .font(.headline)
-                    .foregroundStyle(.tint)
-            }
-            .accessibilityHidden(true)
     }
 }

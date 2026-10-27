@@ -32,6 +32,6 @@ let package = Package(
         .testTarget(name: "NetworkingTests", dependencies: ["Networking"]),
         .testTarget(name: "SessionTests", dependencies: ["Session"]),
         .testTarget(name: "AuthFeatureTests", dependencies: ["AuthFeature"]),
-        .testTarget(name: "FeedFeatureTests", dependencies: ["FeedFeature"]),
+        .testTarget(name: "FeedFeatureTests", dependencies: ["FeedFeature", "DesignSystem"]),
     ]
 )

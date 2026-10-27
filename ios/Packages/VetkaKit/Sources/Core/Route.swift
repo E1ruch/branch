@@ -15,6 +15,11 @@ extension Route {
     /// TODO: the real domain once it exists.
     public static let universalLinkHosts: Set<String> = ["vetka.app"]
 
+    /// A link to a post that opens in the app (or on the site) for anyone.
+    public static func shareURL(postID: Int64) -> URL {
+        URL(string: "https://\(universalLinkHosts.first!)/post/\(postID)")!
+    }
+
     /// Parses deep links:
     ///   vetka://post/42, vetka://c/cats, vetka://u/ivan, vetka://comment/7
     ///   https://vetka.app/post/42 (and the same paths)

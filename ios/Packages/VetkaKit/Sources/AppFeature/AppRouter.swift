@@ -4,7 +4,9 @@ import Observation
 import SwiftUI
 
 enum Tab: Hashable, CaseIterable {
-    case feed, communities, profile
+    /// `create` is the green "+" in the middle: it opens the composer and
+    /// never becomes the selected tab.
+    case feed, search, create, activity, profile
 }
 
 /// Navigation state: the selected tab and one stack of routes per tab, so
@@ -16,6 +18,9 @@ final class AppRouter {
     var paths: [Tab: [Route]] = [:]
     /// The sign-in sheet. Any screen that needs an account raises it.
     var isAuthPresented = false
+    var isComposePresented = false
+    /// Set by AppEnvironment: posting needs an account.
+    var isSignedIn: () -> Bool = { false }
 
     func path(for tab: Tab) -> Binding<[Route]> {
         Binding(get: { self.paths[tab, default: []] },
@@ -27,6 +32,15 @@ final class AppRouter {
     var tabSelection: Binding<Tab> {
         Binding(get: { self.selectedTab },
                 set: { tab in
+                    if tab == .create {
+                        Haptics.tap()
+                        if self.isSignedIn() {
+                            self.isComposePresented = true
+                        } else {
+                            self.isAuthPresented = true
+                        }
+                        return
+                    }
                     if tab == self.selectedTab {
                         if !self.paths[tab, default: []].isEmpty {
                             self.paths[tab] = []

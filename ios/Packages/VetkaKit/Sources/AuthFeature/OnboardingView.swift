@@ -43,7 +43,7 @@ struct OnboardingView: View {
                     .background(Color.vetkaField, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
 
                 if let error = model.error {
-                    Text(error).font(.callout).foregroundStyle(.red)
+                    Text(error).font(.callout).foregroundStyle(Color.vetkaDanger)
                 }
 
                 Button {
@@ -51,13 +51,10 @@ struct OnboardingView: View {
                 } label: {
                     ZStack {
                         Text("Продолжить").opacity(model.isSaving ? 0 : 1)
-                        if model.isSaving { ProgressView().tint(.white) }
+                        if model.isSaving { ProgressView() }
                     }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: Radius.card))
+                .buttonStyle(.vetkaPrimary())
                 .disabled(!model.canSave)
                 .accessibilityIdentifier("onboarding.continue")
             }
@@ -82,11 +79,11 @@ struct OnboardingView: View {
         case .checking:
             Text("Проверяем…").foregroundStyle(Color.vetkaSecondaryText)
         case .available:
-            Label("Свободен", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            Label("Свободен", systemImage: "checkmark.circle.fill").foregroundStyle(Color.vetkaSuccess)
         case .taken:
-            Label("Занят", systemImage: "xmark.circle.fill").foregroundStyle(.red)
+            Label("Занят", systemImage: "xmark.circle.fill").foregroundStyle(Color.vetkaDanger)
         case let .invalid(message):
-            Text(message).foregroundStyle(.red)
+            Text(message).foregroundStyle(Color.vetkaDanger)
         case .unknown:
             Text("Не удалось проверить — проверим при сохранении")
                 .foregroundStyle(Color.vetkaSecondaryText)

@@ -29,7 +29,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         layout.minimumLineSpacing = 0
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        collectionView.backgroundColor = .systemBackground
+        collectionView.backgroundColor = Palette.background
         collectionView.alwaysBounceVertical = true
         collectionView.delegate = self
         collectionView.register(PostCell.self, forCellWithReuseIdentifier: PostCell.reuseID)
@@ -40,7 +40,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
             let cell = cv.dequeueReusableCell(withReuseIdentifier: PostCell.reuseID, for: indexPath) as! PostCell
             guard let self, let post = model.posts[id], let layout = model.layouts[id] else { return cell }
             cell.configure(post: post, layout: layout, fonts: model.fonts, animateVote: false)
-            cell.onVote = { [weak self] direction in self?.model.tapVote(id, direction: direction) }
+            cell.onAction = { [weak self] action in self?.handle(action, post: id) }
             return cell
         }
 
@@ -141,8 +141,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
             c.image = UIImage(systemName: "person.crop.circle.badge.plus")
             c.text = "Ваши подписки"
             c.secondaryText = "Войдите, чтобы видеть посты сообществ, на которые вы подписаны."
-            c.button = .borderedProminent()
-            c.button.title = "Войти"
+            c.button = .vetkaPrimary(title: "Войти")
             c.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.requestSignIn() }
             config = c
         case .failed:
@@ -150,8 +149,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
             c.image = UIImage(systemName: "wifi.exclamationmark")
             c.text = "Не удалось загрузить"
             c.secondaryText = "Проверьте соединение и попробуйте ещё раз."
-            c.button = .borderedProminent()
-            c.button.title = "Повторить"
+            c.button = .vetkaPrimary(title: "Повторить")
             c.buttonProperties.primaryAction = UIAction { [weak self] _ in Task { await self?.model.load() } }
             config = c
         case .loaded where model.ids.isEmpty:
@@ -180,6 +178,54 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell,
                         forItemAt indexPath: IndexPath) {
         Task { await model.loadMoreIfNeeded(displaying: indexPath.item) }
+    }
+
+    /// Long press: the same actions as the "⋯" menu plus the votes, with
+    /// the system's lifted preview and haptic.
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
+                        point: CGPoint) -> UIContextMenuConfiguration? {
+        guard let indexPath = indexPaths.first, let id = dataSource.itemIdentifier(for: indexPath),
+              let post = model.posts[id] else { return nil }
+        return UIContextMenuConfiguration(identifier: id as NSNumber, previewProvider: nil) { [weak self] _ in
+            let act: (PostAction) -> UIActionHandler = { action in { _ in self?.handle(action, post: id) } }
+            let votes = UIMenu(options: .displayInline, children: [
+                UIAction(title: "Плюс", image: UIImage(systemName: "arrowshape.up"),
+                         state: post.myVote == 1 ? .on : .off, handler: act(.vote(1))),
+                UIAction(title: "Минус", image: UIImage(systemName: "arrowshape.down"),
+                         state: post.myVote == -1 ? .on : .off, handler: act(.vote(-1))),
+            ])
+            return UIMenu(children: [
+                votes,
+                UIAction(title: "Поделиться", image: UIImage(systemName: "square.and.arrow.up"), handler: act(.share)),
+                UIAction(title: "Скопировать ссылку", image: UIImage(systemName: "link"), handler: act(.copyLink)),
+                UIAction(title: post.community.title, image: UIImage(systemName: "square.grid.2x2"), handler: act(.openCommunity)),
+                UIAction(title: "Профиль автора", image: UIImage(systemName: "person"),
+                         attributes: post.author == nil ? .disabled : [], handler: act(.openAuthor)),
+            ])
+        }
+    }
+
+    private func handle(_ action: PostAction, post id: Int64) {
+        guard let post = model.posts[id] else { return }
+        switch action {
+        case let .vote(direction):
+            model.tapVote(id, direction: direction)
+        case .share:
+            let share = UIActivityViewController(activityItems: [post.title, Route.shareURL(postID: id)], applicationActivities: nil)
+            if let cell = dataSource.indexPath(for: id).flatMap({ collectionView.cellForItem(at: $0) }) {
+                share.popoverPresentationController?.sourceView = cell
+            }
+            present(share, animated: true)
+        case .copyLink:
+            UIPasteboard.general.url = Route.shareURL(postID: id)
+            Haptics.success()
+        case .openCommunity:
+            open(.community(slug: post.community.slug))
+        case .openAuthor:
+            if let author = post.author {
+                open(.user(username: author.username))
+            }
+        }
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
