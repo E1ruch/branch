@@ -61,6 +61,9 @@ func run() error {
 		_, signingKey, _ = ed25519.GenerateKey(nil)
 		log.Warn("JWT_SIGNING_KEY not set, using an ephemeral key: all sessions end on restart")
 	}
+	if cfg.TelegramFakeLogin {
+		log.Warn("TELEGRAM_FAKE_LOGIN is on: anyone can sign in as any Telegram user (local development only)")
+	}
 	authSvc := auth.NewService(db,
 		auth.NewIssuer(signingKey, cfg.AccessTokenTTL),
 		auth.NewAppleVerifier(cfg.AppleBundleID),
@@ -70,6 +73,7 @@ func run() error {
 			RefreshGrace:     cfg.RefreshGrace,
 			TelegramBotToken: cfg.TelegramBotToken,
 			TelegramMaxAge:   time.Hour,
+			Limiter:          redis.Limiter{Client: rdb},
 		},
 		log,
 	)
@@ -90,6 +94,8 @@ func run() error {
 			Votes:         vote.NewService(db, redis.Limiter{Client: rdb}),
 			Comments:      comment.NewService(db, redis.Limiter{Client: rdb}),
 			TelegramBot:   cfg.TelegramBotUsername,
+			TelegramToken: cfg.TelegramBotToken,
+			TelegramFake:  cfg.TelegramFakeLogin,
 			PublicBaseURL: cfg.PublicBaseURL,
 			AppScheme:     cfg.AppScheme,
 		}),

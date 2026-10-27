@@ -30,6 +30,8 @@ type Deps struct {
 	Comments    *comment.Service
 
 	TelegramBot   string // bot username for the login widget; empty disables it
+	TelegramToken string // signs fake logins
+	TelegramFake  bool   // local development: a form instead of the real widget
 	PublicBaseURL string // where the API is reachable from a browser
 	AppScheme     string // the app's URL scheme for auth redirects
 }
@@ -41,7 +43,8 @@ func NewRouter(d Deps) http.Handler {
 	voteH := &voteHandlers{svc: d.Votes, log: d.Logger}
 	commentH := &commentHandlers{svc: d.Comments, log: d.Logger}
 	userH := &userHandlers{users: d.Users, posts: postH, comments: d.Comments, log: d.Logger}
-	tg := telegramPage{botUsername: d.TelegramBot, publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
+	tg := telegramPage{botUsername: d.TelegramBot, botToken: d.TelegramToken, fake: d.TelegramFake,
+		publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, requestLogger(d.Logger), recoverer(d.Logger))
@@ -59,6 +62,7 @@ func NewRouter(d Deps) http.Handler {
 	// Browser pages for the Telegram web sign-in flow, outside the JSON API.
 	r.Get("/auth/telegram", tg.page)
 	r.Get("/auth/telegram/callback", tg.callback)
+	r.Post("/auth/telegram/fake", tg.fakeSubmit)
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(authenticate(d.Auth.VerifyAccessToken))
@@ -73,6 +77,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/apple", authH.apple)
 				r.Post("/telegram", authH.telegram)
+				r.Post("/register", authH.register)
+				r.Post("/login", authH.login)
 				r.Post("/refresh", authH.refresh)
 				r.Post("/logout", authH.logout)
 			})

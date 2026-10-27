@@ -27,6 +27,8 @@ public extension Color {
     static let vetkaGroupedBackground = Color(uiColor: .systemGroupedBackground)
     static let vetkaSecondaryText = Color(uiColor: .secondaryLabel)
     static let vetkaSkeleton = Color(uiColor: .tertiarySystemFill)
+    /// Text field background.
+    static let vetkaField = Color(uiColor: .tertiarySystemFill)
     static let vetkaUpvote = Color.orange
     static let vetkaDownvote = Color.indigo
 }

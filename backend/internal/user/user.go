@@ -195,8 +195,8 @@ func (s *Store) Update(ctx context.Context, id int64, in UpdateInput) (User, err
 //
 // Posts and comments stay (threads would break otherwise) but lose their
 // author everywhere, since every read joins users with deleted_at IS NULL.
-// The username is freed, sign-in identities are dropped (signing in again
-// creates a fresh account), all sessions are revoked, and subscriptions go
+// The username is freed, sign-in identities and the password are dropped
+// (signing in again creates a fresh account), all sessions are revoked, and subscriptions go
 // so community counters stay honest.
 func (s *Store) Delete(ctx context.Context, id int64) error {
 	tx, err := s.db.Begin(ctx)
@@ -218,6 +218,7 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	}
 	for _, sql := range []string{
 		`DELETE FROM auth_identities WHERE user_id = $1`,
+		`DELETE FROM password_credentials WHERE user_id = $1`,
 		`DELETE FROM community_members WHERE user_id = $1`,
 		`DELETE FROM community_moderators WHERE user_id = $1`,
 	} {

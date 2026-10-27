@@ -35,6 +35,11 @@ public enum Haptics {
         selectionGenerator.prepare()
     }
 
+    /// Signed in, saved: something completed.
+    public static func success() {
+        notification.notificationOccurred(.success)
+    }
+
     /// An optimistic action was rolled back.
     public static func error() {
         notification.notificationOccurred(.error)

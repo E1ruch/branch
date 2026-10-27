@@ -14,6 +14,8 @@ enum Tab: Hashable, CaseIterable {
 final class AppRouter {
     var selectedTab: Tab = .feed
     var paths: [Tab: [Route]] = [:]
+    /// The sign-in sheet. Any screen that needs an account raises it.
+    var isAuthPresented = false
 
     func path(for tab: Tab) -> Binding<[Route]> {
         Binding(get: { self.paths[tab, default: []] },

@@ -1,3 +1,4 @@
+import AuthFeature
 import CommunitiesFeature
 import Core
 import DesignSystem
@@ -28,11 +29,14 @@ public struct AppRootView: View {
                 .tabItem { Label("Сообщества", systemImage: "square.grid.2x2") }
                 .tag(Tab.communities)
 
-            stack(.profile) { ProfileTabView(session: app.session) }
+            stack(.profile) { ProfileTabView(session: app.session, router: router) }
                 .tabItem { Label("Профиль", systemImage: "person.crop.circle") }
                 .tag(Tab.profile)
         }
         .onOpenURL { router.open($0) }
+        .sheet(isPresented: $router.isAuthPresented) {
+            AuthFlowView(client: app.client, session: app.session)
+        }
         .task {
             Haptics.prepare()
             await app.session.start()
@@ -92,17 +96,29 @@ struct FeedPlaceholderView: View {
 
 struct ProfileTabView: View {
     let session: SessionStore
+    let router: AppRouter
 
     var body: some View {
         Group {
             switch session.state {
             case .signedOut:
-                ContentUnavailableView("Вы не вошли", systemImage: "person.crop.circle.badge.questionmark",
-                                       description: Text("Вход через Apple и Telegram — модуль «Авторизация»."))
+                ContentUnavailableView {
+                    Label("Вы не вошли", systemImage: "person.crop.circle.badge.questionmark")
+                } description: {
+                    Text("Войдите, чтобы голосовать, комментировать и подписываться на сообщества.")
+                } actions: {
+                    Button("Войти") { router.isAuthPresented = true }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("profile.signIn")
+                }
             case .signedIn:
                 if let me = session.me {
                     List {
+                        if let name = me.displayName {
+                            LabeledContent("Имя", value: name)
+                        }
                         LabeledContent("Ник", value: me.username)
+                            .accessibilityIdentifier("profile.username")
                         LabeledContent("Карма за посты", value: me.postKarma.formatted())
                         LabeledContent("Карма за комментарии", value: me.commentKarma.formatted())
                         Button("Выйти", role: .destructive) { Task { await session.signOut() } }

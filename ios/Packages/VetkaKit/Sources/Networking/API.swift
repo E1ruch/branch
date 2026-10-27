@@ -9,6 +9,55 @@ public enum API {
 
     // MARK: Auth
 
+    public struct AppleSignIn: Encodable, Sendable {
+        public var identityToken: String
+        /// The raw nonce; Apple got its SHA-256.
+        public var nonce: String
+        /// Apple sends the name only on the very first authorization.
+        public var givenName: String?
+        public var familyName: String?
+        public var deviceName: String
+
+        public init(identityToken: String, nonce: String, givenName: String?, familyName: String?, deviceName: String) {
+            self.identityToken = identityToken
+            self.nonce = nonce
+            self.givenName = givenName
+            self.familyName = familyName
+            self.deviceName = deviceName
+        }
+    }
+
+    public static func signInWithApple(_ body: AppleSignIn) -> Endpoint<AuthSession> {
+        Endpoint(.post, "/v1/auth/apple", body: body, auth: .none)
+    }
+
+    private struct PasswordAuth: Encodable, Sendable {
+        let username: String
+        let password: String
+        let deviceName: String
+    }
+
+    /// Creates an account with a chosen username: no onboarding afterwards.
+    public static func register(username: String, password: String, deviceName: String) -> Endpoint<AuthSession> {
+        Endpoint(.post, "/v1/auth/register",
+                 body: PasswordAuth(username: username, password: password, deviceName: deviceName), auth: .none)
+    }
+
+    public static func login(username: String, password: String, deviceName: String) -> Endpoint<AuthSession> {
+        Endpoint(.post, "/v1/auth/login",
+                 body: PasswordAuth(username: username, password: password, deviceName: deviceName), auth: .none)
+    }
+
+    private struct TelegramSignIn: Encodable, Sendable {
+        let data: [String: String]
+        let deviceName: String
+    }
+
+    /// `data` is the callback's query parameters exactly as Telegram signed them.
+    public static func signInWithTelegram(data: [String: String], deviceName: String) -> Endpoint<AuthSession> {
+        Endpoint(.post, "/v1/auth/telegram", body: TelegramSignIn(data: data, deviceName: deviceName), auth: .none)
+    }
+
     public static func refresh(_ refreshToken: String) -> Endpoint<Tokens> {
         Endpoint(.post, "/v1/auth/refresh", body: ["refresh_token": refreshToken], auth: .none)
     }
@@ -21,6 +70,22 @@ public enum API {
 
     public static func me() -> Endpoint<Me> {
         Endpoint(.get, "/v1/me", auth: .required)
+    }
+
+    private struct ProfileUpdate: Encodable, Sendable {
+        let username: String?
+        let displayName: String?
+        let bio: String?
+    }
+
+    /// nil fields are left out of the body and stay as they are on the
+    /// server; an empty string clears a display name or bio.
+    public static func updateMe(username: String? = nil, displayName: String? = nil, bio: String? = nil) -> Endpoint<Me> {
+        Endpoint(.patch, "/v1/me", body: ProfileUpdate(username: username, displayName: displayName, bio: bio), auth: .required)
+    }
+
+    public static func usernameAvailability(_ username: String) -> Endpoint<UsernameAvailability> {
+        Endpoint(.get, "/v1/usernames/\(username)/availability", auth: .none)
     }
 
     // MARK: Feeds

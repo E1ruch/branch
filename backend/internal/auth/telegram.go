@@ -18,6 +18,28 @@ type TelegramUser struct {
 	Username  string
 }
 
+// SignTelegram computes the hash Telegram puts into widget data: every field
+// except "hash", sorted as key=value lines, signed with HMAC-SHA256 keyed by
+// SHA256(bot_token). Verification compares against it; the local fake login
+// uses it to sign data the way Telegram would.
+func SignTelegram(data map[string]string, botToken string) string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		if k != "hash" {
+			keys = append(keys, k)
+		}
+	}
+	slices.Sort(keys)
+	lines := make([]string, len(keys))
+	for i, k := range keys {
+		lines[i] = k + "=" + data[k]
+	}
+	secret := sha256.Sum256([]byte(botToken))
+	mac := hmac.New(sha256.New, secret[:])
+	mac.Write([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 // VerifyTelegram checks Telegram Login Widget data as documented in
 // https://core.telegram.org/widgets/login#checking-authorization:
 // hash = hex(HMAC-SHA256(data_check_string, SHA256(bot_token))).
@@ -33,26 +55,12 @@ func VerifyTelegram(data map[string]string, botToken string, now time.Time, maxA
 		return TelegramUser{}, fmt.Errorf("%w: missing hash", ErrInvalidCredentials)
 	}
 
-	keys := make([]string, 0, len(data))
 	for k, v := range data {
 		if len(v) > 512 {
 			return TelegramUser{}, fmt.Errorf("%w: field %q too long", ErrInvalidCredentials, k)
 		}
-		if k != "hash" {
-			keys = append(keys, k)
-		}
 	}
-	slices.Sort(keys)
-	lines := make([]string, len(keys))
-	for i, k := range keys {
-		lines[i] = k + "=" + data[k]
-	}
-
-	secret := sha256.Sum256([]byte(botToken))
-	mac := hmac.New(sha256.New, secret[:])
-	mac.Write([]byte(strings.Join(lines, "\n")))
-	want := hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(want), []byte(strings.ToLower(hash))) {
+	if !hmac.Equal([]byte(SignTelegram(data, botToken)), []byte(strings.ToLower(hash))) {
 		return TelegramUser{}, fmt.Errorf("%w: bad signature", ErrInvalidCredentials)
 	}
 

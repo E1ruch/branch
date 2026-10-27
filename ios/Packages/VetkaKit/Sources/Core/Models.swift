@@ -160,3 +160,13 @@ public struct AuthSession: Decodable, Sendable {
         Tokens(accessToken: accessToken, accessExpiresAt: accessExpiresAt, refreshToken: refreshToken)
     }
 }
+
+/// GET /v1/usernames/{name}/availability.
+public struct UsernameAvailability: Decodable, Sendable, Hashable {
+    public let username: String
+    public let available: Bool
+    /// "invalid" or "taken" when not available.
+    public let reason: String?
+    /// Why an invalid name is invalid, from the server's rules.
+    public let message: String?
+}

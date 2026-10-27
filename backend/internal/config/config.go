@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -36,6 +37,10 @@ type Config struct {
 	AppleBundleID       string
 	TelegramBotToken    string
 	TelegramBotUsername string
+	// Local development only: /auth/telegram shows a form and the server
+	// signs it with the bot token, so the full Telegram flow works without
+	// a real bot or a public domain.
+	TelegramFakeLogin bool
 
 	PublicBaseURL string
 	AppScheme     string
@@ -81,6 +86,16 @@ func Load() (Config, error) {
 	}
 
 	c.PublicBaseURL = str("PUBLIC_BASE_URL", "http://localhost:8080")
+	c.TelegramFakeLogin = str("TELEGRAM_FAKE_LOGIN", "") == "true"
+	if c.TelegramFakeLogin {
+		// Anyone could sign in as anyone: refuse anything that looks deployed.
+		if !strings.HasPrefix(c.PublicBaseURL, "http://") {
+			errs = append(errs, errors.New("TELEGRAM_FAKE_LOGIN is for local development only: PUBLIC_BASE_URL must be http://"))
+		}
+		if c.TelegramBotToken == "" {
+			errs = append(errs, errors.New("TELEGRAM_FAKE_LOGIN needs TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME (any values)"))
+		}
+	}
 	c.AppScheme = str("APP_URL_SCHEME", "vetka")
 
 	if len(errs) > 0 {

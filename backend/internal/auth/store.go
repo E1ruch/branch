@@ -160,3 +160,48 @@ func (s *store) revokeFamily(ctx context.Context, hash []byte, now time.Time) er
 		  AND revoked_at IS NULL`, hash, now)
 	return err
 }
+
+// createPasswordUser creates the account and its password in one
+// transaction: never a user without a way to sign in.
+func (s *store) createPasswordUser(ctx context.Context, username, hash string) (user.User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return user.User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	u, err := user.Scan(tx.QueryRow(ctx, `
+		INSERT INTO users (username) VALUES ($1)
+		ON CONFLICT (username) DO NOTHING
+		RETURNING `+user.Columns, username))
+	if errors.Is(err, user.ErrNotFound) {
+		return user.User{}, user.ErrUsernameTaken
+	}
+	if err != nil {
+		return user.User{}, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO password_credentials (user_id, hash) VALUES ($1, $2)`, u.ID, hash); err != nil {
+		return user.User{}, err
+	}
+	return u, tx.Commit(ctx)
+}
+
+func (s *store) passwordHash(ctx context.Context, username string) (int64, string, error) {
+	var (
+		id   int64
+		hash string
+	)
+	err := s.db.QueryRow(ctx, `
+		SELECT u.id, pc.hash FROM users u
+		JOIN password_credentials pc ON pc.user_id = u.id
+		WHERE u.username = $1 AND u.deleted_at IS NULL`, username).Scan(&id, &hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", user.ErrNotFound
+	}
+	return id, hash, err
+}
+
+func (s *store) userByID(ctx context.Context, id int64) (user.User, error) {
+	return user.Scan(s.db.QueryRow(ctx, `SELECT `+user.Columns+` FROM users WHERE id = $1`, id))
+}

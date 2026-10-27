@@ -14,6 +14,8 @@ public final class SessionStore {
 
     public private(set) var state: State
     public private(set) var me: Me?
+    /// Just signed up: the app asks for a username before anything else.
+    public private(set) var needsOnboarding = false
 
     private let tokens: TokenStore
     private let client: APIClient
@@ -41,8 +43,19 @@ public final class SessionStore {
     /// The auth feature calls this after a successful sign-in.
     public func didSignIn(_ session: AuthSession) async {
         await tokens.store(session.tokens)
-        state = .signedIn
+        // Load the profile first: onboarding opens prefilled with the
+        // current username, never with an empty field.
         await reloadMe()
+        needsOnboarding = session.isNewUser
+        state = .signedIn
+    }
+
+    /// Onboarding saved the profile (or was skipped, with nil).
+    public func finishOnboarding(_ updated: Me?) {
+        if let updated {
+            me = updated
+        }
+        needsOnboarding = false
     }
 
     public func signOut() async {
@@ -67,5 +80,6 @@ public final class SessionStore {
     private func didEnd() {
         state = .signedOut
         me = nil
+        needsOnboarding = false
     }
 }

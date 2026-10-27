@@ -35,6 +35,14 @@ type Config struct {
 
 	TelegramBotToken string // empty disables Telegram sign-in
 	TelegramMaxAge   time.Duration
+
+	// Limiter caps password attempts; nil disables the limits (tests).
+	Limiter Limiter
+}
+
+// Limiter reports whether one more event for key fits in limit per window.
+type Limiter interface {
+	Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error)
 }
 
 type Service struct {
@@ -120,7 +128,11 @@ func (s *Service) signIn(ctx context.Context, provider, subject string, username
 	if created {
 		s.log.InfoContext(ctx, "user signed up", slog.Int64("user_id", u.ID), slog.String("provider", provider))
 	}
+	return s.startSession(ctx, u, created, device)
+}
 
+// startSession issues the token pair for a user who just proved who they are.
+func (s *Service) startSession(ctx context.Context, u user.User, created bool, device string) (Session, error) {
 	now := s.now()
 	refresh, hash := newRefreshToken()
 	if err := s.store.createRefreshToken(ctx, u.ID, hash, truncate(device, 64), now, now.Add(s.cfg.RefreshTTL)); err != nil {

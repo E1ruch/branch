@@ -2,10 +2,9 @@ package httpapi
 
 import (
 	"errors"
-	"html/template"
 	"log/slog"
+	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -133,8 +132,59 @@ func (h *authHandlers) logout(w http.ResponseWriter, r *http.Request) {
 
 // fail maps auth errors to stable codes. The client signs out on
 // refresh_invalid and shows a retry on provider_unavailable.
+type passwordRequest struct {
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	DeviceName string `json:"device_name"`
+}
+
+// register: POST /v1/auth/register {"username", "password", "device_name"}.
+func (h *authHandlers) register(w http.ResponseWriter, r *http.Request) {
+	var req passwordRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	session, err := h.svc.Register(r.Context(), req.Username, req.Password, req.DeviceName, clientAddr(r))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toSessionResponse(session))
+}
+
+// login: POST /v1/auth/login {"username", "password", "device_name"}.
+func (h *authHandlers) login(w http.ResponseWriter, r *http.Request) {
+	var req passwordRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	session, err := h.svc.Login(r.Context(), req.Username, req.Password, req.DeviceName, clientAddr(r))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toSessionResponse(session))
+}
+
+// clientAddr identifies the client for attempt limits. The API is not behind
+// a proxy yet; once it is, this must read the proxy's forwarded address.
+func clientAddr(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 func (h *authHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {
+	var verr *user.ValidationError
 	switch {
+	case errors.As(err, &verr):
+		writeFieldError(w, http.StatusUnprocessableEntity, "validation_failed", verr.Field, verr.Message)
+	case errors.Is(err, user.ErrUsernameTaken):
+		writeFieldError(w, http.StatusConflict, "username_taken", "username", "this username is taken")
+	case errors.Is(err, auth.ErrRateLimited):
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
 	case errors.Is(err, auth.ErrInvalidCredentials):
 		h.log.InfoContext(r.Context(), "sign-in rejected", slog.Any("err", err))
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "sign-in data is invalid or expired")
@@ -188,58 +238,4 @@ func requireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// --- Telegram web flow -----------------------------------------------------
-//
-// The app opens /auth/telegram in ASWebAuthenticationSession. The page shows
-// the Telegram Login Widget, which redirects to /auth/telegram/callback with
-// signed query parameters. The callback forwards them unchanged to the app's
-// URL scheme; the app then POSTs them to /v1/auth/telegram for verification.
-
-type telegramPage struct {
-	botUsername   string // empty disables the flow
-	publicBaseURL string
-	appScheme     string
-}
-
-var telegramPageTmpl = template.Must(template.New("tg").Parse(`<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Вход через Telegram</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-         font-family: -apple-system, system-ui, sans-serif; background: Canvas; }
-</style>
-</head>
-<body>
-<script async src="https://telegram.org/js/telegram-widget.js?22"
-        data-telegram-login="{{.Bot}}" data-size="large" data-radius="12"
-        data-auth-url="{{.CallbackURL}}"></script>
-</body>
-</html>
-`))
-
-func (p telegramPage) page(w http.ResponseWriter, _ *http.Request) {
-	if p.botUsername == "" {
-		writeError(w, http.StatusNotFound, "provider_disabled", "this sign-in method is disabled")
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = telegramPageTmpl.Execute(w, struct{ Bot, CallbackURL string }{
-		Bot:         p.botUsername,
-		CallbackURL: strings.TrimRight(p.publicBaseURL, "/") + "/auth/telegram/callback",
-	})
-}
-
-func (p telegramPage) callback(w http.ResponseWriter, r *http.Request) {
-	if p.botUsername == "" || r.URL.Query().Get("hash") == "" {
-		writeError(w, http.StatusBadRequest, "bad_request", "missing Telegram data")
-		return
-	}
-	target := url.URL{Scheme: p.appScheme, Host: "auth", Path: "/telegram", RawQuery: r.URL.RawQuery}
-	http.Redirect(w, r, target.String(), http.StatusFound)
 }

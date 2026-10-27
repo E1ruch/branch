@@ -5,7 +5,7 @@ import PackageDescription
 // so dependencies are explicit, `internal` is the default boundary, and
 // incremental builds only recompile what changed.
 //
-//   AppFeature ─▶ CommunitiesFeature ─▶ DesignSystem
+//   AppFeature ─▶ CommunitiesFeature, AuthFeature ─▶ DesignSystem
 //       │                │
 //       └──▶ Session ─▶ Networking ─▶ Core
 //
@@ -23,10 +23,12 @@ let package = Package(
         .target(name: "Session", dependencies: ["Core", "Networking"]),
         .target(name: "DesignSystem"),
         .target(name: "CommunitiesFeature", dependencies: ["Core", "Networking", "DesignSystem"]),
-        .target(name: "AppFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem", "CommunitiesFeature"]),
+        .target(name: "AuthFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem"]),
+        .target(name: "AppFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem", "CommunitiesFeature", "AuthFeature"]),
 
         .testTarget(name: "CoreTests", dependencies: ["Core"]),
         .testTarget(name: "NetworkingTests", dependencies: ["Networking"]),
         .testTarget(name: "SessionTests", dependencies: ["Session"]),
+        .testTarget(name: "AuthFeatureTests", dependencies: ["AuthFeature"]),
     ]
 )
