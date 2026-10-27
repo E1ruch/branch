@@ -20,6 +20,7 @@ import (
 	"vetka/internal/platform/logging"
 	"vetka/internal/platform/postgres"
 	"vetka/internal/platform/redis"
+	"vetka/internal/post"
 	"vetka/internal/user"
 )
 
@@ -83,6 +84,7 @@ func run() error {
 			Auth:          authSvc,
 			Users:         user.NewStore(db),
 			Communities:   community.NewService(db),
+			Posts:         post.NewService(db, redis.Limiter{Client: rdb}),
 			TelegramBot:   cfg.TelegramBotUsername,
 			PublicBaseURL: cfg.PublicBaseURL,
 			AppScheme:     cfg.AppScheme,

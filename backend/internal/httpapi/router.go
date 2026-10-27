@@ -11,6 +11,7 @@ import (
 
 	"vetka/internal/auth"
 	"vetka/internal/community"
+	"vetka/internal/post"
 	"vetka/internal/user"
 )
 
@@ -22,6 +23,7 @@ type Deps struct {
 	Auth        *auth.Service
 	Users       *user.Store
 	Communities *community.Service
+	Posts       *post.Service
 
 	TelegramBot   string // bot username for the login widget; empty disables it
 	PublicBaseURL string // where the API is reachable from a browser
@@ -32,6 +34,7 @@ func NewRouter(d Deps) http.Handler {
 	authH := &authHandlers{svc: d.Auth, log: d.Logger}
 	meH := &meHandlers{users: d.Users, log: d.Logger}
 	commH := &communityHandlers{svc: d.Communities, log: d.Logger}
+	postH := &postHandlers{svc: d.Posts, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
 
 	r := chi.NewRouter()
@@ -71,6 +74,15 @@ func NewRouter(d Deps) http.Handler {
 			r.With(requireAuth).Get("/me", meH.get)
 			r.With(requireAuth).Get("/me/subscriptions", commH.subscriptions)
 
+			r.Get("/feed/all", postH.feedAll)
+			r.With(requireAuth).Get("/feed/subscriptions", postH.feedSubscriptions)
+
+			r.Route("/posts/{id}", func(r chi.Router) {
+				r.Get("/", postH.get)
+				r.With(requireAuth).Patch("/", postH.edit)
+				r.With(requireAuth).Delete("/", postH.delete)
+			})
+
 			r.Route("/communities", func(r chi.Router) {
 				r.Get("/", commH.list)
 				r.Get("/search", commH.search)
@@ -81,6 +93,8 @@ func NewRouter(d Deps) http.Handler {
 					// PUT/DELETE of a state, not a toggle: retries are safe.
 					r.With(requireAuth).Put("/subscription", commH.subscribe)
 					r.With(requireAuth).Delete("/subscription", commH.unsubscribe)
+					r.Get("/posts", postH.feedCommunity)
+					r.With(requireAuth).Post("/posts", postH.create)
 				})
 			})
 		})
