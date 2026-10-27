@@ -264,3 +264,28 @@ func TestFeedShowsPreviewAndPostShowsFullBody(t *testing.T) {
 		t.Errorf("full post: truncated=%v len=%d, %v", full.BodyTruncated, len([]rune(full.Body)), err)
 	}
 }
+
+func TestByAuthor(t *testing.T) {
+	e := newEnv(t)
+	author := testdb.CreateUser(t, e.db, "author")
+	other := testdb.CreateUser(t, e.db, "other")
+	news := e.community(t, "news", false)
+	e.insertPost(t, news, author, "a1", 0, false)
+	e.insertPost(t, news, other, "not-mine", 0, false)
+	e.insertPost(t, news, author, "a2-nsfw", 0, true)
+	gone := e.insertPost(t, news, author, "a3-deleted", 0, false)
+	e.insertPost(t, news, author, "a4", 0, false)
+	e.db.Exec(e.ctx, `UPDATE posts SET deleted_at = now() WHERE id = $1`, gone)
+
+	list := func(viewer int64) string {
+		return strings.Join(pageAll(t, func(after *Cursor) ([]Post, error) {
+			return e.svc.ByAuthor(e.ctx, author, FeedQuery{After: after, Limit: 2, Viewer: viewer})
+		}), " ")
+	}
+	if got := list(other); got != "a4 a1" {
+		t.Errorf("seen by others: %s, want a4 a1 (no NSFW, no deleted)", got)
+	}
+	if got := list(author); got != "a4 a2-nsfw a1" {
+		t.Errorf("seen by the author: %s, want a4 a2-nsfw a1", got)
+	}
+}

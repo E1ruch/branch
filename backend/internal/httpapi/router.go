@@ -36,11 +36,11 @@ type Deps struct {
 
 func NewRouter(d Deps) http.Handler {
 	authH := &authHandlers{svc: d.Auth, log: d.Logger}
-	meH := &meHandlers{users: d.Users, log: d.Logger}
 	commH := &communityHandlers{svc: d.Communities, log: d.Logger}
 	postH := &postHandlers{svc: d.Posts, log: d.Logger}
 	voteH := &voteHandlers{svc: d.Votes, log: d.Logger}
 	commentH := &commentHandlers{svc: d.Comments, log: d.Logger}
+	userH := &userHandlers{users: d.Users, posts: postH, comments: d.Comments, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
 
 	r := chi.NewRouter()
@@ -77,8 +77,20 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/logout", authH.logout)
 			})
 
-			r.With(requireAuth).Get("/me", meH.get)
-			r.With(requireAuth).Get("/me/subscriptions", commH.subscriptions)
+			r.Route("/me", func(r chi.Router) {
+				r.Use(requireAuth)
+				r.Get("/", userH.me)
+				r.Patch("/", userH.updateMe)
+				r.Delete("/", userH.deleteMe)
+				r.Get("/subscriptions", commH.subscriptions)
+			})
+
+			r.Route("/users/{username}", func(r chi.Router) {
+				r.Get("/", userH.profile)
+				r.Get("/posts", userH.userPosts)
+				r.Get("/comments", userH.userComments)
+			})
+			r.Get("/usernames/{username}/availability", userH.usernameAvailability)
 
 			r.Get("/feed/all", postH.feedAll)
 			r.With(requireAuth).Get("/feed/subscriptions", postH.feedSubscriptions)

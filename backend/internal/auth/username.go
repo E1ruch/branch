@@ -2,20 +2,18 @@ package auth
 
 import (
 	"crypto/rand"
-	"regexp"
 	"strings"
 	"unicode/utf8"
-)
 
-// Same rule as the users.username CHECK constraint.
-var usernameRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,24}$`)
+	"vetka/internal/user"
+)
 
 // usernameCandidates lists names to try for a new account: the preferred one
 // (a Telegram username) if it fits our rules, then random ones. The user can
 // pick a real name later during onboarding.
 func usernameCandidates(preferred string) []string {
 	var out []string
-	if usernameRe.MatchString(preferred) {
+	if user.ValidateUsername(preferred) == nil {
 		out = append(out, preferred)
 	}
 	for range 5 {

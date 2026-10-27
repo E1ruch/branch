@@ -368,3 +368,42 @@ func TestNotFound(t *testing.T) {
 		t.Errorf("thread of deleted post: %v", err)
 	}
 }
+
+func TestByAuthor(t *testing.T) {
+	e := newEnv(t)
+	other := testdb.CreateUser(t, e.db, "other")
+	first := e.add(t, nil, "first", 0)
+	e.add(t, &first, "second", 0)
+	gone := e.add(t, nil, "deleted", 0)
+	e.svc.Delete(e.ctx, gone.ID, e.author)
+	if _, err := e.svc.Create(e.ctx, other, e.postID, nil, "not mine"); err != nil {
+		t.Fatal(err)
+	}
+	deadPost := e.newPost(t)
+	if _, err := e.svc.Create(e.ctx, e.author, deadPost, nil, "under deleted post"); err != nil {
+		t.Fatal(err)
+	}
+	e.db.Exec(e.ctx, `UPDATE posts SET deleted_at = now() WHERE id = $1`, deadPost)
+
+	var got []string
+	var after *Cursor
+	for range 5 {
+		items, err := e.svc.ByAuthor(e.ctx, e.author, other, after, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range items {
+			got = append(got, it.Body)
+			if it.Post.ID != e.postID || it.Post.Title != "x" || it.Post.CommunitySlug == "" {
+				t.Errorf("post context: %+v", it.Post)
+			}
+		}
+		if len(items) < 1 {
+			break
+		}
+		after = &Cursor{ID: items[len(items)-1].ID}
+	}
+	if strings.Join(got, ", ") != "second, first" {
+		t.Errorf("comments by author: %v, want [second first]", got)
+	}
+}

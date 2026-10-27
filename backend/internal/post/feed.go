@@ -133,3 +133,16 @@ func (s *Service) FeedSubscriptions(ctx context.Context, userID int64, q FeedQue
 		ORDER BY ` + order + ` LIMIT ` + limit
 	return s.collect(ctx, sql, args)
 }
+
+// ByAuthor lists a user's posts, newest first, through posts_author_idx.
+// NSFW posts are shown only to the author: elsewhere a profile would bypass
+// the default NSFW filter.
+func (s *Service) ByAuthor(ctx context.Context, authorID int64, q FeedQuery) ([]Post, error) {
+	q.Sort = SortNew
+	where, order, args := keyset(q, []any{q.Viewer, authorID})
+	args = append(args, q.Limit)
+	sql := fmt.Sprintf(selectPost(true), "posts") + `
+		WHERE p.deleted_at IS NULL AND p.author_id = $2 AND (NOT p.is_nsfw OR p.author_id = $1) AND ` + where + `
+		ORDER BY ` + order + fmt.Sprintf(" LIMIT $%d", len(args))
+	return s.collect(ctx, sql, args)
+}

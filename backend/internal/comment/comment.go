@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -76,26 +77,32 @@ func NewService(db *pgxpool.Pool, limiter Limiter) *Service {
 // columns. $1 is always the viewer. Deleted comments lose body and author
 // here, in one place, so no endpoint can leak them.
 func project(from string) string {
-	return `
-	SELECT t.id, t.post_id, t.parent_id, t.depth,
-	       CASE WHEN t.deleted_at IS NULL THEN t.body ELSE '' END, t.deleted_at IS NOT NULL,
-	       t.score, COALESCE(v.value, 0), t.reply_count, t.created_at, t.edited_at,
-	       u.id, u.username, u.display_name
-	FROM ` + from + ` t
-	LEFT JOIN users u ON u.id = t.author_id AND u.deleted_at IS NULL AND t.deleted_at IS NULL
-	LEFT JOIN comment_votes v ON v.comment_id = t.id AND v.user_id = $1`
+	return `SELECT ` + commentCols + ` FROM ` + from + ` t ` + commentJoins
 }
 
-func scan(row pgx.Row) (Comment, error) {
+const (
+	commentCols = `
+	       t.id, t.post_id, t.parent_id, t.depth,
+	       CASE WHEN t.deleted_at IS NULL THEN t.body ELSE '' END, t.deleted_at IS NOT NULL,
+	       t.score, COALESCE(v.value, 0), t.reply_count, t.created_at, t.edited_at,
+	       u.id, u.username, u.display_name`
+	commentJoins = `
+	LEFT JOIN users u ON u.id = t.author_id AND u.deleted_at IS NULL AND t.deleted_at IS NULL
+	LEFT JOIN comment_votes v ON v.comment_id = t.id AND v.user_id = $1`
+)
+
+// scan reads commentCols, then any extra columns into extra.
+func scan(row pgx.Row, extra ...any) (Comment, error) {
 	var (
 		c           Comment
 		authorID    *int64
 		username    *string
 		displayName *string
 	)
-	err := row.Scan(&c.ID, &c.PostID, &c.ParentID, &c.Depth, &c.Body, &c.Deleted,
+	dest := []any{&c.ID, &c.PostID, &c.ParentID, &c.Depth, &c.Body, &c.Deleted,
 		&c.Score, &c.MyVote, &c.ReplyCount, &c.CreatedAt, &c.EditedAt,
-		&authorID, &username, &displayName)
+		&authorID, &username, &displayName}
+	err := row.Scan(append(dest, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Comment{}, ErrNotFound
 	}
@@ -202,4 +209,50 @@ func (s *Service) checkAuthor(ctx context.Context, id, userID int64, allowDelete
 		return ErrForbidden
 	}
 	return nil
+}
+
+// AuthoredComment is a comment in a user's profile, with the post it
+// answers so the list makes sense out of its thread.
+type AuthoredComment struct {
+	Comment
+	Post PostRef
+}
+
+type PostRef struct {
+	ID            int64
+	Title         string
+	CommunitySlug string
+}
+
+// ByAuthor lists a user's live comments, newest first, skipping those under
+// deleted posts. Comments under NSFW posts are shown only to their author:
+// elsewhere a profile would bypass the default NSFW filter.
+func (s *Service) ByAuthor(ctx context.Context, authorID, viewer int64, after *Cursor, limit int) ([]AuthoredComment, error) {
+	before := int64(math.MaxInt64)
+	if after != nil {
+		before = after.ID
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT `+commentCols+`, p.id, p.title, cm.slug
+		FROM comments t
+		JOIN posts p ON p.id = t.post_id AND p.deleted_at IS NULL
+		JOIN communities cm ON cm.id = p.community_id `+commentJoins+`
+		WHERE t.author_id = $2 AND t.deleted_at IS NULL AND (NOT p.is_nsfw OR t.author_id = $1)
+		  AND t.id < $3
+		ORDER BY t.id DESC
+		LIMIT $4`, viewer, authorID, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AuthoredComment{}
+	for rows.Next() {
+		var a AuthoredComment
+		a.Comment, err = scan(rows, &a.Post.ID, &a.Post.Title, &a.Post.CommunitySlug)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }

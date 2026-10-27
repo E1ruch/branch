@@ -34,6 +34,7 @@ type userDTO struct {
 	ID           int64     `json:"id"`
 	Username     string    `json:"username"`
 	DisplayName  *string   `json:"display_name"`
+	Bio          *string   `json:"bio"`
 	PostKarma    int       `json:"post_karma"`
 	CommentKarma int       `json:"comment_karma"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -44,6 +45,7 @@ func toUserDTO(u user.User) userDTO {
 		ID:           u.ID,
 		Username:     u.Username,
 		DisplayName:  u.DisplayName,
+		Bio:          u.Bio,
 		PostKarma:    u.PostKarma,
 		CommentKarma: u.CommentKarma,
 		CreatedAt:    u.CreatedAt,
