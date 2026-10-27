@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B0A1C0DE0000000000000001 /* AppFeature in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1C0DE0000000000000002 /* AppFeature */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		8667D93C3090DBC7003CD92E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1C0DE0000000000000001 /* AppFeature in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = branch;
 			packageProductDependencies = (
+				B0A1C0DE0000000000000002 /* AppFeature */,
 			);
 			productName = branch;
 			productReference = 8667D92E3090DBC6003CD92E /* branch.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = 8667D9253090DBC6003CD92E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B0A1C0DE0000000000000003 /* XCLocalSwiftPackageReference "Packages/VetkaKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8667D92F3090DBC6003CD92E /* Products */;
 			projectDirPath = "";
@@ -397,6 +406,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ветка";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -410,7 +421,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = laviosa.branch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -424,6 +435,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ветка";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -437,7 +450,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = laviosa.branch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -454,7 +467,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = laviosa.branchTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/branch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/branch";
 			};
@@ -472,7 +485,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = laviosa.branchTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/branch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/branch";
 			};
@@ -488,7 +501,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = laviosa.branchUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = branch;
 			};
@@ -504,7 +517,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = laviosa.branchUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = branch;
 			};
@@ -550,6 +563,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B0A1C0DE0000000000000003 /* XCLocalSwiftPackageReference "Packages/VetkaKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/VetkaKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B0A1C0DE0000000000000002 /* AppFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1C0DE0000000000000003 /* XCLocalSwiftPackageReference "Packages/VetkaKit" */;
+			productName = AppFeature;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8667D9263090DBC6003CD92E /* Project object */;
 }

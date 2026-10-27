@@ -1,41 +1,74 @@
-//
-//  branchUITests.swift
-//  branchUITests
-//
-//  Created by Владислав Безуглов on 27.10.2026.
-//
-
 import XCTest
 
+/// Smoke tests of the app shell. The communities test talks to the local
+/// backend (`make infra-up run` in backend/); without it the test is skipped,
+/// not failed.
 final class branchUITests: XCTestCase {
-
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testTabsCommunitiesAndBackSwipe() throws {
         let app = XCUIApplication()
         app.launch()
+        XCTAssertTrue(app.navigationBars["Ветка"].waitForExistence(timeout: 5))
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        app.tabBars.buttons["Сообщества"].tap()
+        let kotiki = app.staticTexts["Котики"]
+        if !kotiki.waitForExistence(timeout: 10) {
+            if app.staticTexts["Не удалось загрузить"].exists {
+                throw XCTSkip("backend is not running on localhost:8080")
+            }
+            XCTFail("communities did not load")
+        }
+        screenshot(app, "communities")
+
+        kotiki.tap()
+        XCTAssertTrue(app.navigationBars["kotiki"].waitForExistence(timeout: 3))
+        screenshot(app, "community")
+
+        // The interactive back-swipe from the left edge must keep working.
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        XCTAssertTrue(app.navigationBars["Сообщества"].waitForExistence(timeout: 3))
+
+        app.tabBars.buttons["Профиль"].tap()
+        XCTAssertTrue(app.staticTexts["Вы не вошли"].waitForExistence(timeout: 3))
+        screenshot(app, "profile")
+    }
+
+    @MainActor
+    func testDeepLinkOpensRoute() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Ветка"].waitForExistence(timeout: 5))
+        // Open the link the way another app would: through the system.
+        XCUIDevice.shared.system.open(URL(string: "vetka://post/42")!)
+
+        // iOS asks before a URL scheme opens an app from outside it; the
+        // button is in the simulator's language.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let open = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Открыть", "Open"])).firstMatch
+        if open.waitForExistence(timeout: 3) {
+            open.tap()
+        }
+        XCTAssertTrue(app.navigationBars["Пост #42"].waitForExistence(timeout: 5))
+        screenshot(app, "deep link")
     }
 
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }
+    }
+
+    @MainActor
+    private func screenshot(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
