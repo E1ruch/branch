@@ -18,6 +18,8 @@ type errorBody struct {
 type apiError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Field names the offending input, so the app highlights that text field.
+	Field string `json:"field,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -28,6 +30,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorBody{Error: apiError{Code: code, Message: message}})
+}
+
+func writeFieldError(w http.ResponseWriter, status int, code, field, message string) {
+	writeJSON(w, status, errorBody{Error: apiError{Code: code, Message: message, Field: field}})
 }
 
 // internalError logs the real cause and hides it from the client.

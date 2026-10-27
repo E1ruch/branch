@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"vetka/internal/auth"
+	"vetka/internal/community"
 	"vetka/internal/config"
 	"vetka/internal/httpapi"
 	"vetka/internal/platform/logging"
@@ -81,6 +82,7 @@ func run() error {
 			},
 			Auth:          authSvc,
 			Users:         user.NewStore(db),
+			Communities:   community.NewService(db),
 			TelegramBot:   cfg.TelegramBotUsername,
 			PublicBaseURL: cfg.PublicBaseURL,
 			AppScheme:     cfg.AppScheme,

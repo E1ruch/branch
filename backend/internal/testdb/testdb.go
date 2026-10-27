@@ -69,6 +69,17 @@ func New(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// CreateUser inserts a bare user and returns its ID.
+func CreateUser(t *testing.T, db *pgxpool.Pool, username string) int64 {
+	t.Helper()
+	var id int64
+	if err := db.QueryRow(context.Background(),
+		`INSERT INTO users (username) VALUES ($1) RETURNING id`, username).Scan(&id); err != nil {
+		t.Fatalf("testdb: create user %q: %v", username, err)
+	}
+	return id
+}
+
 func migrate(t *testing.T, dbURL string) {
 	t.Helper()
 	db, err := sql.Open("pgx", dbURL)
