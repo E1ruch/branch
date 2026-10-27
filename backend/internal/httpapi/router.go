@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"vetka/internal/auth"
+	"vetka/internal/comment"
 	"vetka/internal/community"
 	"vetka/internal/post"
 	"vetka/internal/user"
@@ -26,6 +27,7 @@ type Deps struct {
 	Communities *community.Service
 	Posts       *post.Service
 	Votes       *vote.Service
+	Comments    *comment.Service
 
 	TelegramBot   string // bot username for the login widget; empty disables it
 	PublicBaseURL string // where the API is reachable from a browser
@@ -38,6 +40,7 @@ func NewRouter(d Deps) http.Handler {
 	commH := &communityHandlers{svc: d.Communities, log: d.Logger}
 	postH := &postHandlers{svc: d.Posts, log: d.Logger}
 	voteH := &voteHandlers{svc: d.Votes, log: d.Logger}
+	commentH := &commentHandlers{svc: d.Comments, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
 
 	r := chi.NewRouter()
@@ -85,6 +88,15 @@ func NewRouter(d Deps) http.Handler {
 				r.With(requireAuth).Patch("/", postH.edit)
 				r.With(requireAuth).Delete("/", postH.delete)
 				r.With(requireAuth).Put("/vote", voteH.votePost)
+				r.Get("/comments", commentH.thread)
+				r.With(requireAuth).Post("/comments", commentH.create)
+			})
+
+			r.Route("/comments/{id}", func(r chi.Router) {
+				r.Get("/replies", commentH.replies)
+				r.With(requireAuth).Patch("/", commentH.edit)
+				r.With(requireAuth).Delete("/", commentH.delete)
+				r.With(requireAuth).Put("/vote", voteH.voteComment)
 			})
 
 			r.Route("/communities", func(r chi.Router) {

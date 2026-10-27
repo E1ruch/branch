@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"vetka/internal/auth"
+	"vetka/internal/comment"
 	"vetka/internal/community"
 	"vetka/internal/config"
 	"vetka/internal/httpapi"
@@ -87,6 +88,7 @@ func run() error {
 			Communities:   community.NewService(db),
 			Posts:         post.NewService(db, redis.Limiter{Client: rdb}),
 			Votes:         vote.NewService(db, redis.Limiter{Client: rdb}),
+			Comments:      comment.NewService(db, redis.Limiter{Client: rdb}),
 			TelegramBot:   cfg.TelegramBotUsername,
 			PublicBaseURL: cfg.PublicBaseURL,
 			AppScheme:     cfg.AppScheme,
