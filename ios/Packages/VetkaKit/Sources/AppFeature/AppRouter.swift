@@ -6,7 +6,7 @@ import SwiftUI
 enum Tab: Hashable, CaseIterable {
     /// `create` is the green "+" in the middle: it opens the composer and
     /// never becomes the selected tab.
-    case feed, search, create, activity, profile
+    case feed, search, create, communities, profile
 }
 
 /// Navigation state: the selected tab and one stack of routes per tab, so

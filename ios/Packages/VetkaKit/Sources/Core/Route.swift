@@ -8,6 +8,8 @@ public enum Route: Hashable, Sendable {
     case user(username: String)
     /// "Продолжить ветку": the replies of a comment as their own screen.
     case commentThread(commentID: Int64)
+    /// Ответы, упоминания, реакции: opened from the bell in the feed header.
+    case activity
 }
 
 extension Route {

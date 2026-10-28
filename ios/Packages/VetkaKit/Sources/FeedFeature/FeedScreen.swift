@@ -14,12 +14,14 @@ public struct FeedScreen: View {
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
     private let openSearch: () -> Void
+    private let openActivity: () -> Void
     private let openProfile: () -> Void
     @State private var kind: FeedKind = .hot
 
     public init(service: any FeedService, store: PostStore, isSignedIn: Bool, myName: String?,
                 open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void,
-                openSearch: @escaping () -> Void, openProfile: @escaping () -> Void) {
+                openSearch: @escaping () -> Void, openActivity: @escaping () -> Void,
+                openProfile: @escaping () -> Void) {
         self.service = service
         self.store = store
         self.isSignedIn = isSignedIn
@@ -27,6 +29,7 @@ public struct FeedScreen: View {
         self.open = open
         self.requestSignIn = requestSignIn
         self.openSearch = openSearch
+        self.openActivity = openActivity
         self.openProfile = openProfile
     }
 
@@ -54,6 +57,13 @@ public struct FeedScreen: View {
                             .foregroundStyle(Color(uiColor: Palette.iconPrimary))
                     }
                     .accessibilityLabel("Поиск")
+
+                    Button(action: openActivity) {
+                        Image(systemName: "bell")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Color(uiColor: Palette.iconPrimary))
+                    }
+                    .accessibilityLabel("Активность")
 
                     Button(action: isSignedIn ? openProfile : requestSignIn) {
                         if let myName {

@@ -4,8 +4,8 @@ import Networking
 import Stores
 import SwiftUI
 
-/// The search tab: Популярное and Подписки with their counters; typing
-/// switches the list to search results. Every row subscribes (or
+/// The communities tab: Популярное and Подписки with their counters; typing
+/// in its search field switches the list to search results. Every row subscribes (or
 /// unsubscribes) in one tap.
 public struct CommunitiesView: View {
     @State private var model: CommunitiesModel
@@ -23,9 +23,9 @@ public struct CommunitiesView: View {
     public var body: some View {
         content
             .background(Color.vetkaBackground)
-            .navigationTitle("Поиск")
+            .navigationTitle("Сообщества")
             .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
-            .searchable(text: bindable.query, prompt: "Сообщества")
+            .searchable(text: bindable.query, prompt: "Найти сообщество")
             // Again on sign-in or out: subscriptions belong to the account.
             .task(id: isSignedIn) { await model.load(signedIn: isSignedIn) }
             .task(id: model.query) { await model.search() }

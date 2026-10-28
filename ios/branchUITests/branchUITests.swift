@@ -15,7 +15,7 @@ final class branchUITests: XCTestCase {
         XCTAssertTrue(app.collectionViews["feed.hot"].waitForExistence(timeout: 8))
 
         screenshot(app, "feed")
-        app.tabBars.buttons["Поиск"].tap()
+        app.tabBars.buttons["Сообщества"].tap()
         let kotiki = app.staticTexts["Котики"]
         if !kotiki.waitForExistence(timeout: 10) {
             if app.staticTexts["Не удалось загрузить"].exists {
@@ -35,7 +35,7 @@ final class branchUITests: XCTestCase {
         // The interactive back-swipe from the left edge must keep working.
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
         edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
-        XCTAssertTrue(app.navigationBars["Поиск"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.navigationBars["Сообщества"].waitForExistence(timeout: 8))
 
         // Signed out or with a session left in the simulator's keychain.
         app.tabBars.buttons["Профиль"].tap()

@@ -49,15 +49,13 @@ public struct AppRootView: View {
                            open: { router.push($0) },
                            requestSignIn: { router.isAuthPresented = true },
                            openSearch: { router.tabSelection.wrappedValue = .search },
+                           openActivity: { router.push(.activity) },
                            openProfile: { router.tabSelection.wrappedValue = .profile })
             }
                 .tabItem { Label("Лента", systemImage: "flame") }
                 .tag(Tab.feed)
 
-            stack(.search) {
-                CommunitiesView(client: app.client, store: app.communities, isSignedIn: app.session.state == .signedIn,
-                                requestSignIn: { router.isAuthPresented = true })
-            }
+            stack(.search) { SearchPlaceholder() }
                 .tabItem { Label("Поиск", systemImage: "magnifyingglass") }
                 .tag(Tab.search)
 
@@ -68,9 +66,12 @@ public struct AppRootView: View {
                 }
                 .tag(Tab.create)
 
-            stack(.activity) { ActivityPlaceholder() }
-                .tabItem { Label("Активность", systemImage: "bell") }
-                .tag(Tab.activity)
+            stack(.communities) {
+                CommunitiesView(client: app.client, store: app.communities, isSignedIn: app.session.state == .signedIn,
+                                requestSignIn: { router.isAuthPresented = true })
+            }
+                .tabItem { Label("Сообщества", systemImage: "square.grid.2x2") }
+                .tag(Tab.communities)
 
             stack(.profile) { ProfileTabView(session: app.session, router: router) }
                 .tabItem { Label("Профиль", systemImage: "person.crop.circle") }
@@ -160,6 +161,8 @@ struct RouteView: View {
                         note: "Публичный профиль — в модуле «Профиль».")
         case let .commentThread(id):
             thread(.branch(commentID: id))
+        case .activity:
+            ActivityPlaceholder()
         }
     }
 
@@ -191,6 +194,16 @@ struct ActivityPlaceholder: View {
         ContentUnavailableView("Активность", systemImage: "bell",
                                description: Text("Ответы, упоминания, реакции и новые подписчики появятся здесь."))
             .navigationTitle("Активность")
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// The search tab until its own screen (posts, people, communities) is made.
+struct SearchPlaceholder: View {
+    var body: some View {
+        ContentUnavailableView("Поиск", systemImage: "magnifyingglass",
+                               description: Text("Поиск постов, людей и сообществ появится здесь."))
+            .navigationTitle("Поиск")
     }
 }
 
