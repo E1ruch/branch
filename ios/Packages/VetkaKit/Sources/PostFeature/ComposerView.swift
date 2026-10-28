@@ -26,6 +26,8 @@ final class ComposerView: UIView, UITextViewDelegate {
     private(set) var replyTo: Int64?
     var onSend: ((String, Int64?) -> Void)?
     var onSignIn: (() -> Void)?
+    /// The field gained or lost the keyboard.
+    var onEditingChanged: ((Bool) -> Void)?
 
     static let maxLines: CGFloat = 6
 
@@ -210,6 +212,14 @@ final class ComposerView: UIView, UITextViewDelegate {
         textView.text = ""
         textViewDidChange(textView)
         endReply()
+    }
+
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        onEditingChanged?(true)
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        onEditingChanged?(false)
     }
 
     func textViewDidChange(_ textView: UITextView) {

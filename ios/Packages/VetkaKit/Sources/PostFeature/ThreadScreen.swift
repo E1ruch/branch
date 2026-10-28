@@ -30,6 +30,14 @@ public struct ThreadScreen: View {
         self.open = open
         self.requestSignIn = requestSignIn
         self.continueStory = continueStory
+        // The title must be there when the push starts: set later by the
+        // view controller, it pops in after the animation instead of
+        // sliding in with it.
+        let title = switch mode {
+        case let .post(id): store[id]?.community.title ?? "Пост"
+        case .branch: "Ветка"
+        }
+        _title = State(initialValue: title)
     }
 
     public var body: some View {

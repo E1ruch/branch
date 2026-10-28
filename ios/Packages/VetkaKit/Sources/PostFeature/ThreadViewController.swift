@@ -6,7 +6,7 @@ import UIKit
 /// A post with its comments, or a continued branch, in one UICollectionView:
 /// the tree is already a flat list in display order, so every row is a cell
 /// indented by depth. Heights come precomputed from the model, like the feed.
-final class ThreadViewController: UIViewController, UICollectionViewDelegateFlowLayout {
+final class ThreadViewController: UIViewController, UICollectionViewDelegateFlowLayout, UIGestureRecognizerDelegate {
     let model: ThreadModel
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
@@ -18,6 +18,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private let composer = ComposerView()
     private let composerBackground = UIView()
     private var didStartLoading = false
+    /// While the keyboard is up, a tap on the thread only puts it away (the
+    /// system animation; the field follows through the keyboard guide)
+    /// instead of folding a comment. Buttons in cells still work.
+    private let dismissKeyboardTap = UITapGestureRecognizer()
 
     init(model: ThreadModel, open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void,
          continueStory: @escaping (Post) -> Void) {
@@ -85,8 +89,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             composerBackground.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
+        dismissKeyboardTap.addTarget(self, action: #selector(dismissKeyboard))
+        dismissKeyboardTap.delegate = self
+        dismissKeyboardTap.isEnabled = false
+        collectionView.addGestureRecognizer(dismissKeyboardTap)
+
         composer.isSignedIn = model.isSignedIn
         composer.onSignIn = requestSignIn
+        composer.onEditingChanged = { [weak self] editing in self?.dismissKeyboardTap.isEnabled = editing }
         composer.onSend = { [weak self] text, replyTo in
             guard let self, let row = model.send(text, replyTo: replyTo) else { return }
             composer.clear()
@@ -122,6 +132,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         coordinator.animate(alongsideTransition: nil) { [weak self] _ in
             Task { await self?.updateWidth() }
         }
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
+    }
+
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !(touch.view is UIControl) // votes, «Ответить», the sort menu
     }
 
     private func updateWidth() async {
