@@ -5,7 +5,7 @@ import PackageDescription
 // so dependencies are explicit, `internal` is the default boundary, and
 // incremental builds only recompile what changed.
 //
-//   AppFeature ─▶ Communities/Auth/Feed/PostFeature ─▶ Stores, DesignSystem
+//   AppFeature ─▶ Communities/Auth/Feed/Post/ComposeFeature ─▶ Stores, DesignSystem
 //       │                │                                │
 //       └──▶ Session ─▶ Networking ─▶ Core ◀──────────────┘
 //
@@ -27,8 +27,9 @@ let package = Package(
         .target(name: "AuthFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem"]),
         .target(name: "FeedFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
         .target(name: "PostFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
+        .target(name: "ComposeFeature", dependencies: ["Core", "Networking", "DesignSystem"]),
         .target(name: "AppFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem", "Stores",
-                                                   "CommunitiesFeature", "AuthFeature", "FeedFeature", "PostFeature"]),
+                                                   "CommunitiesFeature", "AuthFeature", "FeedFeature", "PostFeature", "ComposeFeature"]),
 
         .testTarget(name: "CoreTests", dependencies: ["Core"]),
         .testTarget(name: "NetworkingTests", dependencies: ["Networking"]),
@@ -37,5 +38,6 @@ let package = Package(
         .testTarget(name: "FeedFeatureTests", dependencies: ["FeedFeature", "DesignSystem", "Stores"]),
         .testTarget(name: "StoresTests", dependencies: ["Stores"]),
         .testTarget(name: "PostFeatureTests", dependencies: ["PostFeature", "Stores"]),
+        .testTarget(name: "ComposeFeatureTests", dependencies: ["ComposeFeature"]),
     ]
 )

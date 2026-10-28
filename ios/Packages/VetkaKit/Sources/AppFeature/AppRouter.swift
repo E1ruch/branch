@@ -19,6 +19,8 @@ final class AppRouter {
     /// The sign-in sheet. Any screen that needs an account raises it.
     var isAuthPresented = false
     var isComposePresented = false
+    /// The post whose story the composer continues, when opened for that.
+    var composeContinuing: Post?
     /// Set by AppEnvironment: posting needs an account.
     var isSignedIn: () -> Bool = { false }
 
@@ -32,13 +34,8 @@ final class AppRouter {
     var tabSelection: Binding<Tab> {
         Binding(get: { self.selectedTab },
                 set: { tab in
-                    if tab == .create {
-                        Haptics.tap()
-                        if self.isSignedIn() {
-                            self.isComposePresented = true
-                        } else {
-                            self.isAuthPresented = true
-                        }
+                    if tab == .create { // VoiceOver can still pick the item itself
+                        self.compose()
                         return
                     }
                     if tab == self.selectedTab {
@@ -50,6 +47,29 @@ final class AppRouter {
                     }
                     self.selectedTab = tab
                 })
+    }
+
+    /// The green "+". A button laid over the tab bar calls this: letting
+    /// TabView select the "create" item, even for the instant before the
+    /// binding refuses it, re-attaches the feed's stack and leaves screens
+    /// pushed later with no safe area (lists under the bars).
+    func compose(continuing post: Post? = nil) {
+        Haptics.tap()
+        if isSignedIn() {
+            composeContinuing = post
+            isComposePresented = true
+        } else {
+            isAuthPresented = true
+        }
+    }
+
+    /// The post and branch screens hide the tab bar for their comment
+    /// field; the "+" laid over it must go too.
+    var isTabBarHidden: Bool {
+        switch paths[selectedTab]?.last {
+        case .post, .commentThread: true
+        default: false
+        }
     }
 
     func push(_ route: Route) {

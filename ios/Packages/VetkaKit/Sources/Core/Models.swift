@@ -72,6 +72,27 @@ public struct Post: Codable, Sendable, Hashable, Identifiable {
     public let community: CommunityRef
     /// nil when the account is deleted.
     public let author: AuthorRef?
+    /// Where the post stands in its story; nil outside a story.
+    public let story: StoryRef?
+}
+
+/// "Часть 2 из 3": counts live parts only.
+public struct StoryRef: Codable, Sendable, Hashable {
+    public let id: Int64
+    public let part: Int
+    public let parts: Int
+
+    public var isLast: Bool { part == parts }
+}
+
+/// One entry of a story's table of contents (GET /v1/posts/{id}/story).
+public struct StoryPart: Codable, Sendable, Hashable, Identifiable {
+    public let postId: Int64
+    public let title: String
+    public let part: Int
+    public let createdAt: Date
+
+    public var id: Int64 { postId }
 }
 
 public struct Comment: Codable, Sendable, Hashable, Identifiable {
@@ -199,14 +220,14 @@ extension Post {
     public func with(myVote: Int, score: Int) -> Post {
         Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
-             editedAt: editedAt, community: community, author: author)
+             editedAt: editedAt, community: community, author: author, story: story)
     }
 
     /// A copy with another comment count: a comment was just posted.
     public func with(commentCount: Int) -> Post {
         Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
-             editedAt: editedAt, community: community, author: author)
+             editedAt: editedAt, community: community, author: author, story: story)
     }
 
     /// The same post with the body and edit time of `other`: a feed's
@@ -214,7 +235,7 @@ extension Post {
     func with(contentOf other: Post) -> Post {
         Post(id: id, title: title, body: other.body, bodyTruncated: other.bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
-             editedAt: other.editedAt, community: community, author: author)
+             editedAt: other.editedAt, community: community, author: author, story: story)
     }
 
     /// Merges a newer copy from the server, keeping a full body over a

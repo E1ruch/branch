@@ -21,6 +21,10 @@ var (
 	ErrCommunityNotFound = errors.New("post: community not found")
 	ErrForbidden         = errors.New("post: forbidden")
 	ErrRateLimited       = errors.New("post: too many posts")
+	// The post to continue is gone (or never was).
+	ErrStoryNotFound = errors.New("post: the post to continue is not found")
+	// Only a post's author may add parts to its story.
+	ErrNotStoryAuthor = errors.New("post: only the author can continue the story")
 )
 
 type ValidationError struct {
@@ -51,6 +55,15 @@ type Post struct {
 
 	Community CommunityRef
 	Author    *AuthorRef // nil when the account is deleted
+	Story     *StoryRef  // nil when the post is not part of a story
+}
+
+// StoryRef places a post in its story. Part and Parts count live parts
+// only, so deleting part 2 of 3 makes part 3 "Часть 2 из 2".
+type StoryRef struct {
+	ID    int64
+	Part  int
+	Parts int
 }
 
 type CommunityRef struct {
@@ -100,11 +113,16 @@ func selectPost(preview bool) string {
 	SELECT p.id, p.title, ` + body + `,
 	       p.is_nsfw, p.score, p.comment_count, COALESCE(v.value, 0), p.hot_rank, p.created_at, p.edited_at,
 	       c.id, c.slug, c.title,
-	       u.id, u.username, u.display_name
+	       u.id, u.username, u.display_name,
+	       p.story_id, st.part, st.parts
 	FROM %s p
 	JOIN communities c ON c.id = p.community_id
 	LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL
-	LEFT JOIN post_votes v ON v.post_id = p.id AND v.user_id = $1`
+	LEFT JOIN post_votes v ON v.post_id = p.id AND v.user_id = $1
+	LEFT JOIN LATERAL (
+		SELECT count(*) FILTER (WHERE sp.story_part <= p.story_part) AS part, count(*) AS parts
+		FROM posts sp WHERE sp.story_id = p.story_id AND sp.deleted_at IS NULL
+	) st ON p.story_id IS NOT NULL`
 }
 
 func scan(row pgx.Row) (Post, error) {
@@ -113,11 +131,14 @@ func scan(row pgx.Row) (Post, error) {
 		authorID    *int64
 		username    *string
 		displayName *string
+		storyID     *int64
+		part, parts *int
 	)
 	err := row.Scan(&p.ID, &p.Title, &p.Body, &p.BodyTruncated,
 		&p.IsNSFW, &p.Score, &p.CommentCount, &p.MyVote, &p.HotRank, &p.CreatedAt, &p.EditedAt,
 		&p.Community.ID, &p.Community.Slug, &p.Community.Title,
-		&authorID, &username, &displayName)
+		&authorID, &username, &displayName,
+		&storyID, &part, &parts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Post{}, ErrNotFound
 	}
@@ -126,6 +147,9 @@ func scan(row pgx.Row) (Post, error) {
 	}
 	if authorID != nil {
 		p.Author = &AuthorRef{ID: *authorID, Username: *username, DisplayName: displayName}
+	}
+	if storyID != nil && part != nil && parts != nil {
+		p.Story = &StoryRef{ID: *storyID, Part: *part, Parts: *parts}
 	}
 	return p, nil
 }
@@ -140,6 +164,9 @@ type CreateInput struct {
 	Title  string
 	Body   string
 	IsNSFW bool
+	// The author's post this one continues: the new post becomes the last
+	// part of its story (a story is started if there is none yet).
+	ContinuesPostID *int64
 }
 
 func (s *Service) Create(ctx context.Context, authorID int64, communitySlug string, in CreateInput) (Post, error) {
@@ -172,18 +199,123 @@ func (s *Service) Create(ctx context.Context, authorID int64, communitySlug stri
 	}
 
 	now := s.now()
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Post{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var storyID *int64
+	var part *int
+	if in.ContinuesPostID != nil {
+		sid, n, err := appendPart(ctx, tx, authorID, *in.ContinuesPostID, now)
+		if err != nil {
+			return Post{}, err
+		}
+		storyID, part = &sid, &n
+	}
+
 	var id int64
-	if err := s.db.QueryRow(ctx, `
-		INSERT INTO posts (community_id, author_id, title, body, is_nsfw, hot_rank, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO posts (community_id, author_id, title, body, is_nsfw, hot_rank, created_at, story_id, story_part)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		communityID, authorID, in.Title, in.Body,
 		in.IsNSFW || communityNSFW, // a post in an NSFW community is NSFW
-		ranking.Hot(0, 0, now), now,
+		ranking.Hot(0, 0, now), now, storyID, part,
 	).Scan(&id); err != nil {
 		return Post{}, err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return Post{}, err
+	}
 	return s.Get(ctx, id, authorID)
+}
+
+// appendPart finds the story a new post joins and its part number: the
+// last part of prevID's story, or part 2 of a story started from prevID.
+// Row locks (the post, then the story) serialize two parts published at
+// once, so numbers never collide.
+func appendPart(ctx context.Context, tx pgx.Tx, authorID, prevID int64, now time.Time) (int64, int, error) {
+	var owner, storyID *int64
+	err := tx.QueryRow(ctx,
+		`SELECT author_id, story_id FROM posts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, prevID,
+	).Scan(&owner, &storyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, ErrStoryNotFound
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if owner == nil || *owner != authorID {
+		return 0, 0, ErrNotStoryAuthor
+	}
+
+	if storyID == nil {
+		var id int64
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO stories (author_id, created_at) VALUES ($1, $2) RETURNING id`, authorID, now,
+		).Scan(&id); err != nil {
+			return 0, 0, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE posts SET story_id = $1, story_part = 1 WHERE id = $2`, id, prevID); err != nil {
+			return 0, 0, err
+		}
+		return id, 2, nil
+	}
+
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM stories WHERE id = $1 FOR UPDATE`, *storyID); err != nil {
+		return 0, 0, err
+	}
+	var next int
+	if err := tx.QueryRow(ctx,
+		`SELECT max(story_part) + 1 FROM posts WHERE story_id = $1`, *storyID,
+	).Scan(&next); err != nil {
+		return 0, 0, err
+	}
+	return *storyID, next, nil
+}
+
+// StoryPart is one entry of a story's table of contents.
+type StoryPart struct {
+	PostID    int64
+	Title     string
+	Part      int // among live parts, from 1
+	CreatedAt time.Time
+}
+
+// StoryParts lists the story of postID in order, deleted parts left out.
+// A post outside any story has an empty list.
+func (s *Service) StoryParts(ctx context.Context, postID int64) ([]StoryPart, error) {
+	var storyID *int64
+	err := s.db.QueryRow(ctx,
+		`SELECT story_id FROM posts WHERE id = $1 AND deleted_at IS NULL`, postID).Scan(&storyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := []StoryPart{}
+	if storyID == nil {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id, title, row_number() OVER (ORDER BY story_part), created_at
+		FROM posts WHERE story_id = $1 AND deleted_at IS NULL
+		ORDER BY story_part`, *storyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p StoryPart
+		if err := rows.Scan(&p.PostID, &p.Title, &p.Part, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // Edit replaces the body. Titles are immutable: votes and comments were given

@@ -106,4 +106,24 @@ func TestPostsAPI(t *testing.T) {
 	if status, _ := c.call("GET", "/v1/posts/abc", "", nil); status != http.StatusNotFound {
 		t.Errorf("non-numeric id: %d", status)
 	}
+
+	// Stories: the author continues a post, readers get the parts.
+	_, start := c.call("POST", "/v1/communities/news/posts", author, map[string]any{"title": "Начало"})
+	startID := start["id"].(float64)
+	if start["story"] != nil {
+		t.Errorf("a lone post has no story: %v", start["story"])
+	}
+	status, next := c.call("POST", "/v1/communities/news/posts", author, map[string]any{"title": "Продолжение", "continues_post_id": startID})
+	story, _ := next["story"].(map[string]any)
+	if status != http.StatusCreated || story == nil || story["part"] != 2.0 || story["parts"] != 2.0 {
+		t.Errorf("continue: %d %v", status, next)
+	}
+	if status, body := c.call("POST", "/v1/communities/news/posts", reader, map[string]any{"title": "чужое", "continues_post_id": startID}); status != http.StatusForbidden || errCode(body) != "not_story_author" {
+		t.Errorf("stranger continues: %d %v", status, body)
+	}
+	status, toc := c.call("GET", fmt.Sprintf("/v1/posts/%d/story", int64(startID)), "", nil)
+	items, _ := toc["items"].([]any)
+	if status != http.StatusOK || len(items) != 2 || items[1].(map[string]any)["title"] != "Продолжение" || items[1].(map[string]any)["part"] != 2.0 {
+		t.Errorf("story parts: %d %v", status, toc)
+	}
 }

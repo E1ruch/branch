@@ -6,7 +6,7 @@ import UIKit
 /// Fonts for one Dynamic Type size, shared by measuring and drawing so the
 /// two always agree. Built off the main actor: UIFont is thread-safe.
 struct ThreadFonts: @unchecked Sendable {
-    let postCommunity: UIFont
+    let postAuthor: UIFont
     let postMeta: UIFont
     let postTitle: UIFont
     let postBody: UIFont
@@ -23,7 +23,7 @@ struct ThreadFonts: @unchecked Sendable {
         func size(_ style: UIFont.TextStyle) -> CGFloat {
             UIFont.preferredFont(forTextStyle: style, compatibleWith: traits).pointSize
         }
-        postCommunity = .systemFont(ofSize: size(.subheadline), weight: .semibold)
+        postAuthor = .systemFont(ofSize: size(.subheadline), weight: .semibold)
         postMeta = .preferredFont(forTextStyle: .footnote, compatibleWith: traits)
         postTitle = .systemFont(ofSize: size(.title3) + 1, weight: .bold)
         postBody = .preferredFont(forTextStyle: .body, compatibleWith: traits)
@@ -56,7 +56,7 @@ struct PostDetailLayout: Sendable, Equatable {
     let title: String
     let body: String
     let avatarFrame: CGRect
-    let communityFrame: CGRect
+    let authorFrame: CGRect
     let metaFrame: CGRect
     let moreFrame: CGRect
     let titleFrame: CGRect
@@ -87,12 +87,12 @@ struct PostDetailLayout: Sendable, Equatable {
         let textX = avatarFrame.maxX + 10
         let moreFrame = CGRect(x: width - inset.right - 36, y: y - 3, width: 44, height: 44)
         let textWidth = max(moreFrame.minX - textX - 4, 1)
-        let communityHeight = ceil(fonts.postCommunity.lineHeight)
+        let authorHeight = ceil(fonts.postAuthor.lineHeight)
         let metaHeight = ceil(fonts.postMeta.lineHeight)
-        let block = communityHeight + 1 + metaHeight
+        let block = authorHeight + 1 + metaHeight
         let textTop = y + max(0, (avatarSize - block) / 2)
-        let communityFrame = CGRect(x: textX, y: textTop, width: textWidth, height: communityHeight)
-        let metaFrame = CGRect(x: textX, y: communityFrame.maxY + 1, width: textWidth, height: metaHeight)
+        let authorFrame = CGRect(x: textX, y: textTop, width: textWidth, height: authorHeight)
+        let metaFrame = CGRect(x: textX, y: authorFrame.maxY + 1, width: textWidth, height: metaHeight)
         y += max(avatarSize, block) + 12
 
         let titleHeight = TextMeasure.height(post.title, font: fonts.postTitle, width: contentWidth)
@@ -113,7 +113,7 @@ struct PostDetailLayout: Sendable, Equatable {
         y += footerHeight + inset.bottom
 
         return PostDetailLayout(width: width, title: post.title, body: body,
-                                avatarFrame: avatarFrame, communityFrame: communityFrame, metaFrame: metaFrame,
+                                avatarFrame: avatarFrame, authorFrame: authorFrame, metaFrame: metaFrame,
                                 moreFrame: moreFrame, titleFrame: titleFrame, bodyFrame: bodyFrame,
                                 footerFrame: footerFrame, contentHeight: ceil(y), height: ceil(y + gap))
     }

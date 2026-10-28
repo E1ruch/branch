@@ -10,6 +10,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     let model: ThreadModel
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
+    private let continueStory: (Post) -> Void
     var onTitle: ((String) -> Void)?
 
     private var collectionView: UICollectionView!
@@ -18,10 +19,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private let composerBackground = UIView()
     private var didStartLoading = false
 
-    init(model: ThreadModel, open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
+    init(model: ThreadModel, open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void,
+         continueStory: @escaping (Post) -> Void) {
         self.model = model
         self.open = open
         self.requestSignIn = requestSignIn
+        self.continueStory = continueStory
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -41,7 +44,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         collectionView.accessibilityIdentifier = "thread"
         for (cell, id) in [(PostDetailCell.self, PostDetailCell.reuseID), (CommentCell.self, CommentCell.reuseID),
                            (StubCell.self, StubCell.reuseID), (CommentsHeaderCell.self, CommentsHeaderCell.reuseID),
-                           (BranchHeaderCell.self, BranchHeaderCell.reuseID), (ThreadStatusCell.self, ThreadStatusCell.reuseID)]
+                           (BranchHeaderCell.self, BranchHeaderCell.reuseID), (ThreadStatusCell.self, ThreadStatusCell.reuseID),
+                           (StoryCell.self, StoryCell.reuseID)]
             as [(UICollectionViewCell.Type, String)] {
             collectionView.register(cell, forCellWithReuseIdentifier: id)
         }
@@ -135,8 +139,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         switch row {
         case .post:
             let cell = cv.dequeueReusableCell(withReuseIdentifier: PostDetailCell.reuseID, for: indexPath) as! PostDetailCell
-            cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts, animateVote: false)
+            cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts,
+                           canContinue: model.canContinueStory, animateVote: false)
             cell.onAction = { [weak self] action in self?.handle(action) }
+            return cell
+        case .story:
+            let cell = cv.dequeueReusableCell(withReuseIdentifier: StoryCell.reuseID, for: indexPath) as! StoryCell
+            configure(cell)
             return cell
         case .branchHeader:
             let cell = cv.dequeueReusableCell(withReuseIdentifier: BranchHeaderCell.reuseID, for: indexPath) as! BranchHeaderCell
@@ -186,6 +195,21 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
     }
 
+    private func configure(_ cell: StoryCell) {
+        guard let post = model.post, let story = post.story else { return }
+        let (previous, next) = model.neighbourParts
+        cell.configure(story: story, currentID: post.id, parts: model.storyParts, previous: previous, next: next,
+                       canContinue: model.canContinueStory, fonts: model.fonts)
+        cell.onOpen = { [weak self] id in
+            Haptics.selection()
+            self?.open(.post(id: id))
+        }
+        cell.onContinue = { [weak self] in
+            guard let self, let post = model.post else { return }
+            continueStory(post)
+        }
+    }
+
     private func configure(_ cell: BranchHeaderCell) {
         cell.configure(postTitle: model.post?.title, hasParent: model.root?.parentId != nil, font: model.fonts.stub)
         cell.onPost = { [weak self] in
@@ -214,7 +238,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                       let cell = collectionView.cellForItem(at: indexPath) else { continue }
                 switch (row, cell) {
                 case let (.post, cell as PostDetailCell):
-                    cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts, animateVote: true)
+                    cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts,
+                                   canContinue: model.canContinueStory, animateVote: true)
+                case let (.story, cell as StoryCell):
+                    configure(cell)
                 case let (.comment(id), cell as CommentCell):
                     configure(cell, comment: id, animateVote: true)
                 case let (.commentsHeader, cell as CommentsHeaderCell):
@@ -295,6 +322,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             open(.community(slug: post.community.slug))
         case .openAuthor:
             if let author = post.author { open(.user(username: author.username)) }
+        case .continueStory:
+            continueStory(post)
         }
     }
 
@@ -361,7 +390,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
         let width = collectionView.bounds.width
         let height: CGFloat = switch dataSource.itemIdentifier(for: indexPath) {
-        case .post: model.postLayout?.height ?? PostDetailLayout.placeholderHeight
+        case .post:
+            // A story row continues the post: no gap strip between them.
+            model.postLayout.map { model.post?.story != nil ? $0.contentHeight : $0.height }
+                ?? PostDetailLayout.placeholderHeight
+        case .story: StoryCell.height
         case .branchHeader: BranchHeaderCell.height
         case .commentsHeader: CommentsHeaderCell.height
         case let .comment(id):

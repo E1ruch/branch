@@ -12,6 +12,7 @@ struct FeedFonts: @unchecked Sendable {
     let title: UIFont
     let body: UIFont
     let footer: UIFont
+    let storyBadge: UIFont
 
     init(category: UIContentSizeCategory) {
         let traits = UITraitCollection(preferredContentSizeCategory: category)
@@ -23,6 +24,7 @@ struct FeedFonts: @unchecked Sendable {
         title = .systemFont(ofSize: size(.headline) + 1, weight: .bold)
         body = .preferredFont(forTextStyle: .subheadline, compatibleWith: traits)
         footer = .monospacedDigitSystemFont(ofSize: size(.subheadline), weight: .semibold)
+        storyBadge = .systemFont(ofSize: size(.footnote), weight: .semibold)
     }
 }
 
@@ -34,6 +36,8 @@ struct PostLayout: Sendable, Equatable {
     let author: String
     /// "2 ч назад · Котики".
     let meta: String
+    /// "Часть 2 из 3" for a part of a story, drawn before the meta in green.
+    let storyLabel: String?
     let avatarFrame: CGRect
     let authorFrame: CGRect
     let metaFrame: CGRect
@@ -101,6 +105,7 @@ struct PostLayout: Sendable, Equatable {
 
         return PostLayout(width: width, author: post.author?.username ?? "удалённый аккаунт",
                           meta: metaText(for: post, now: now),
+                          storyLabel: post.story.map { "Часть \($0.part) из \($0.parts)" },
                           avatarFrame: avatarFrame, authorFrame: authorFrame, metaFrame: metaFrame,
                           moreFrame: moreFrame, titleFrame: titleFrame,
                           bodyText: body, bodyFrame: bodyFrame, bodyLines: bodyLines,

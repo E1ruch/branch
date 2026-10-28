@@ -14,10 +14,14 @@ public struct ThreadScreen: View {
     private let viewer: AuthorRef?
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
+    private let continueStory: (Post) -> Void
     @State private var title = ""
 
+    /// `continueStory` opens the composer for the next part of the post's
+    /// story (the author's "Следующая часть").
     public init(mode: ThreadMode, service: any PostService, store: PostStore, isSignedIn: Bool, viewer: AuthorRef?,
-                open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
+                open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void,
+                continueStory: @escaping (Post) -> Void) {
         self.mode = mode
         self.service = service
         self.store = store
@@ -25,11 +29,13 @@ public struct ThreadScreen: View {
         self.viewer = viewer
         self.open = open
         self.requestSignIn = requestSignIn
+        self.continueStory = continueStory
     }
 
     public var body: some View {
         ThreadContainer(mode: mode, service: service, store: store, isSignedIn: isSignedIn, viewer: viewer,
-                        open: open, requestSignIn: requestSignIn, onTitle: { title = $0 })
+                        open: open, requestSignIn: requestSignIn, continueStory: continueStory,
+                        onTitle: { title = $0 })
             // The view controller moves its field with the keyboard; SwiftUI
             // must not shrink it as well.
             .ignoresSafeArea(.keyboard)
@@ -51,12 +57,14 @@ private struct ThreadContainer: UIViewControllerRepresentable {
     let viewer: AuthorRef?
     let open: (Route) -> Void
     let requestSignIn: () -> Void
+    let continueStory: (Post) -> Void
     let onTitle: (String) -> Void
 
     func makeUIViewController(context: Context) -> ThreadViewController {
         let model = ThreadModel(mode: mode, service: service, store: store, isSignedIn: isSignedIn, viewer: viewer,
                                 requestSignIn: requestSignIn)
-        let vc = ThreadViewController(model: model, open: open, requestSignIn: requestSignIn)
+        let vc = ThreadViewController(model: model, open: open, requestSignIn: requestSignIn,
+                                      continueStory: continueStory)
         vc.onTitle = { title in
             // Never during a SwiftUI update: the title is SwiftUI state.
             DispatchQueue.main.async { onTitle(title) }

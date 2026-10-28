@@ -95,8 +95,19 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         avatar.configure(name: layout.author)
         authorLabel.font = fonts.author
         authorLabel.text = layout.author
-        metaLabel.font = fonts.meta
-        metaLabel.text = layout.meta
+        if let story = layout.storyLabel {
+            let text = NSMutableAttributedString(string: story, attributes: [
+                .font: fonts.storyBadge, .foregroundColor: Palette.accent,
+            ])
+            text.append(NSAttributedString(string: " · " + layout.meta, attributes: [
+                .font: fonts.meta, .foregroundColor: Palette.textSecondary,
+            ]))
+            metaLabel.attributedText = text
+        } else {
+            metaLabel.font = fonts.meta
+            metaLabel.textColor = Palette.textSecondary
+            metaLabel.text = layout.meta
+        }
         titleLabel.font = fonts.title
         titleLabel.text = post.title
         bodyLabel.font = fonts.body

@@ -5,15 +5,23 @@ import Stores
 import Testing
 @testable import PostFeature
 
-func post(_ id: Int64, comments: Int = 0, authorID: Int64 = 2) -> Post {
+func post(_ id: Int64, comments: Int = 0, authorID: Int64 = 2, part: Int? = nil, parts: Int = 3) -> Post {
+    let story = part.map { #"{"id": 5, "part": \#($0), "parts": \#(parts)}"# } ?? "null"
     let json = """
     {"id": \(id), "title": "Пост", "body": "Текст", "body_truncated": false, "is_nsfw": false,
      "score": 1, "comment_count": \(comments), "my_vote": 0,
      "created_at": "2026-10-01T12:00:00Z", "edited_at": null,
      "community": {"id": 1, "slug": "kotiki", "title": "Котики"},
-     "author": {"id": \(authorID), "username": "op", "display_name": null}}
+     "author": {"id": \(authorID), "username": "op", "display_name": null}, "story": \(story)}
     """
     return try! JSON.decoder().decode(Post.self, from: Data(json.utf8))
+}
+
+func storyParts(_ ids: [Int64]) -> [StoryPart] {
+    let items = ids.enumerated().map { i, id in
+        #"{"post_id": \#(id), "title": "Часть \#(i + 1)", "part": \#(i + 1), "created_at": "2026-10-01T12:00:00Z"}"#
+    }
+    return try! JSON.decoder().decode([StoryPart].self, from: Data("[\(items.joined(separator: ","))]".utf8))
 }
 
 /// A comment as the server writes it, for building thread pages.
@@ -47,6 +55,9 @@ actor FakePostService: PostService {
     var votes: [(Int64, Int)] = []
     var voteError: APIError?
     var nextID: Int64 = 100
+    var parts: [StoryPart] = []
+    func set(parts: [StoryPart]) { self.parts = parts }
+    func storyParts(postID: Int64) async throws(APIError) -> [StoryPart] { parts }
 
     func set(post: Post) { posts[post.id] = post }
     func set(thread: Page<ThreadItem>, cursor: String? = nil) { threads[cursor] = thread }
@@ -241,6 +252,28 @@ actor FakePostService: PostService {
         try await Task.sleep(for: .milliseconds(100))
         let created = await service.created
         #expect(created.first?.0 == 50)
+    }
+
+    @Test func aPartOfAStoryShowsItsNeighbours() async {
+        let service = FakePostService()
+        await service.set(post: post(1, authorID: 9, part: 2))
+        await service.set(thread: page([]))
+        await service.set(parts: storyParts([40, 1, 60]))
+        let (m, _) = await model(service)
+        await m.load()
+
+        #expect(m.rows.prefix(3) == [.post, .story, .commentsHeader])
+        #expect(m.neighbourParts.previous?.postId == 40 && m.neighbourParts.next?.postId == 60)
+        #expect(m.canContinueStory) // the viewer (id 9) wrote it
+    }
+
+    @Test func onlyTheAuthorContinuesAndLonePostsHaveNoStoryRow() async {
+        let service = FakePostService()
+        await service.set(post: post(1, authorID: 2))
+        await service.set(thread: page([]))
+        let (m, _) = await model(service)
+        await m.load()
+        #expect(!m.rows.contains(.story) && !m.canContinueStory)
     }
 
     @Test func notFoundPostFailsTheScreen() async {

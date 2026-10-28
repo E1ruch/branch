@@ -16,6 +16,8 @@ public enum ThreadMode: Hashable, Sendable {
 /// A row as the collection view sees it.
 enum Row: Hashable, Sendable {
     case post
+    /// The post is part of a story: previous and next parts, all parts.
+    case story
     /// Branch mode: links to the whole post and one level up.
     case branchHeader
     case commentsHeader
@@ -72,6 +74,8 @@ final class ThreadModel {
     private(set) var pending: Set<Int64> = []
     private(set) var loadingStubs: Set<Int64> = []
     private(set) var sort: API.CommentSort = .best
+    /// The story's table of contents; empty until loaded or outside a story.
+    private(set) var storyParts: [StoryPart] = []
     private(set) var fonts: ThreadFonts
 
     var isSignedIn: Bool
@@ -129,6 +133,19 @@ final class ThreadModel {
     /// Branches indent from their root, so deep ones start at the left edge.
     var baseDepth: Int {
         root?.depth ?? 0
+    }
+
+    /// The viewer wrote this post: they may add the next part of its story.
+    var canContinueStory: Bool {
+        guard let viewer, let author = post?.author else { return false }
+        return isSignedIn && author.id == viewer.id
+    }
+
+    /// The parts around this one, once the table of contents is loaded.
+    var neighbourParts: (previous: StoryPart?, next: StoryPart?) {
+        guard let postID, let index = storyParts.firstIndex(where: { $0.postId == postID }) else { return (nil, nil) }
+        return (index > 0 ? storyParts[index - 1] : nil,
+                index + 1 < storyParts.count ? storyParts[index + 1] : nil)
     }
 
     var title: String {
@@ -211,6 +228,7 @@ final class ThreadModel {
             guard generation == loadGeneration else { return }
             await applyPost(post)
             await applyFirstPage(page.map { (nil, $0) }, generation: generation)
+            await loadStory()
 
         case let .branch(commentID):
             async let rootResult = Self.result { () throws(APIError) in try await service.comment(commentID) }
@@ -250,6 +268,7 @@ final class ThreadModel {
             store.merge([post]) // the observer re-measures if the text changed
             postLayout = await Self.measure(store[post.id], width: width, fonts: fonts)
             postPhase = .loaded
+            rebuildRows()
             onChange?(.reload)
         case .failure(.cancelled):
             break
@@ -300,6 +319,19 @@ final class ThreadModel {
         }
         rebuildRows()
         onChange?(.reload)
+    }
+
+    /// The table of contents of the post's story, for the story row.
+    private func loadStory() async {
+        guard let postID, post?.story != nil else {
+            storyParts = []
+            return
+        }
+        let service = self.service
+        if case let .success(parts) = await Self.result({ () throws(APIError) in try await service.storyParts(postID: postID) }) {
+            storyParts = parts
+            onChange?(.inPlace([.story]))
+        }
     }
 
     /// Pending comments go back right under their parent (or on top).
@@ -456,7 +488,7 @@ final class ThreadModel {
         var rows: [Row] = []
         switch mode {
         case .post:
-            rows = [.post, .commentsHeader]
+            rows = post?.story != nil ? [.post, .story, .commentsHeader] : [.post, .commentsHeader]
         case .branch:
             if root != nil { rows = [.branchHeader] }
         }
@@ -495,11 +527,12 @@ final class ThreadModel {
     private func postChanged() async {
         guard let post else { return }
         if let layout = postLayout, layout.title == post.title, layout.body == PostDetailLayout.displayBody(of: post) {
-            onChange?(.inPlace([.post, .commentsHeader]))
+            onChange?(.inPlace([.post, .story, .commentsHeader]))
             return
         }
         postLayout = await Self.measure(post, width: width, fonts: fonts)
         postPhase = .loaded
+        rebuildRows()
         onChange?(.reload)
     }
 

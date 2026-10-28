@@ -8,13 +8,14 @@ import UIKit
 @testable import FeedFeature
 
 func makePost(_ id: Int64, title: String = "Заголовок", body: String = "", truncated: Bool = false,
-              score: Int = 0, myVote: Int = 0, age: TimeInterval = 3600) throws -> Post {
+              score: Int = 0, myVote: Int = 0, age: TimeInterval = 3600, part: Int? = nil) throws -> Post {
+    let story = part.map { #"{"id": 5, "part": \#($0), "parts": 4}"# } ?? "null"
     let json = """
     {"id": \(id), "title": "\(title)", "body": "\(body)", "body_truncated": \(truncated), "is_nsfw": false,
      "score": \(score), "comment_count": 3, "my_vote": \(myVote),
      "created_at": "\(Date().addingTimeInterval(-age).formatted(.iso8601))", "edited_at": null,
      "community": {"id": 1, "slug": "kotiki", "title": "Котики"},
-     "author": {"id": 2, "username": "ivan", "display_name": null}}
+     "author": {"id": 2, "username": "ivan", "display_name": null}, "story": \(story)}
     """
     return try JSON.decoder().decode(Post.self, from: Data(json.utf8))
 }
@@ -31,6 +32,11 @@ func makePost(_ id: Int64, title: String = "Заголовок", body: String = 
         #expect(long.bodyText.hasSuffix("…"))
         #expect(long.bodyFrame.height <= ceil(fonts.body.lineHeight * CGFloat(PostLayout.maxBodyLines)))
         #expect(long.height > short.height)
+    }
+
+    @Test func aStoryPartIsLabelled() throws {
+        #expect(PostLayout.make(for: try makePost(1, part: 2), width: 390, fonts: fonts).storyLabel == "Часть 2 из 4")
+        #expect(PostLayout.make(for: try makePost(1), width: 390, fonts: fonts).storyLabel == nil)
     }
 
     @Test func noBodyNoBodyFrame() throws {

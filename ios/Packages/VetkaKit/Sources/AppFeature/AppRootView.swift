@@ -1,5 +1,6 @@
 import AuthFeature
 import CommunitiesFeature
+import ComposeFeature
 import Core
 import FeedFeature
 import DesignSystem
@@ -22,6 +23,18 @@ public struct AppRootView: View {
         _router = State(initialValue: app.router)
         // Inactive tabs: the design system's icon-secondary, not system gray.
         UITabBar.appearance().unselectedItemTintColor = Palette.iconSecondary
+    }
+
+    /// A post just published: shown once the composer has closed. Pushed
+    /// while the sheet is still going away, the screen gets no safe area
+    /// and slides under the bars.
+    @State private var publishedPostID: Int64?
+
+    private func openPublishedPost() {
+        router.composeContinuing = nil
+        guard let id = publishedPostID else { return }
+        publishedPostID = nil
+        router.push(.post(id: id))
     }
 
     public var body: some View {
@@ -59,7 +72,28 @@ public struct AppRootView: View {
                 .tag(Tab.profile)
         }
         .tint(.vetkaBrand)
-        .sheet(isPresented: $router.isComposePresented) { ComposePlaceholder() }
+        .overlay(alignment: .bottom) {
+            if !router.isTabBarHidden {
+                Button { router.compose() } label: { Color.clear }
+                    .frame(width: 76, height: 49)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Создать пост")
+                    .accessibilityIdentifier("tab.compose")
+            }
+        }
+        .sheet(isPresented: $router.isComposePresented, onDismiss: openPublishedPost) {
+            let continuing = router.composeContinuing
+            ComposeView(service: LiveComposeService(client: app.client, username: app.session.me?.username),
+                        storage: UserDefaultsDraftStorage(userID: app.session.me?.id ?? 0),
+                        community: continuing.map {
+                            PickedCommunity(slug: $0.community.slug, title: $0.community.title, isNSFW: false)
+                        },
+                        continues: continuing.map(ContinuedPost.init)) { post in
+                app.posts.merge([post])
+                publishedPostID = post.id
+                router.isComposePresented = false
+            }
+        }
         .onOpenURL { router.open($0) }
         .sheet(isPresented: $router.isAuthPresented) {
             AuthFlowView(client: app.client, session: app.session,
@@ -121,7 +155,8 @@ struct RouteView: View {
                             isSignedIn: app.session.state == .signedIn,
                             viewer: me.map { AuthorRef(id: $0.id, username: $0.username, displayName: $0.displayName) },
                             open: { router.push($0) },
-                            requestSignIn: { router.isAuthPresented = true })
+                            requestSignIn: { router.isAuthPresented = true },
+                            continueStory: { router.compose(continuing: $0) })
     }
 }
 
@@ -142,22 +177,6 @@ struct ActivityPlaceholder: View {
         ContentUnavailableView("Активность", systemImage: "bell",
                                description: Text("Ответы, упоминания, реакции и новые подписчики появятся здесь."))
             .navigationTitle("Активность")
-    }
-}
-
-struct ComposePlaceholder: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView("Создание поста", systemImage: "square.and.pencil",
-                                   description: Text("Текст, выбор сообщества и публикация — следующий шаг."))
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Закрыть") { dismiss() }
-                    }
-                }
-        }
     }
 }
 

@@ -4,6 +4,12 @@
 <dict>
 	<!-- Merged with the generated Info.plist (GENERATE_INFOPLIST_FILE): only
 	     keys that build settings cannot express live here. -->
+	<!-- The app speaks Russian only: system strings (Назад, Отмена in
+	     share sheets) follow this, not the project's development region. -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ru</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

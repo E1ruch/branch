@@ -10,6 +10,7 @@ enum PostDetailAction {
     case copyLink
     case openCommunity
     case openAuthor
+    case continueStory
 }
 
 /// The post itself: header, title, the whole body, votes. Frames come from
@@ -18,8 +19,9 @@ final class PostDetailCell: UICollectionViewCell {
     static let reuseID = "PostDetailCell"
 
     private let avatar = AvatarLabel()
+    private let authorButton = UIButton(type: .custom)
     private let communityButton = UIButton(type: .custom)
-    private let communityLabel = UILabel()
+    private let authorLabel = UILabel()
     private let metaLabel = UILabel()
     private let moreButton = UIButton(type: .system)
     private let titleLabel = UILabel()
@@ -31,6 +33,7 @@ final class PostDetailCell: UICollectionViewCell {
     private let skeleton = ThreadSkeletonView(style: .post)
     private var layout: PostDetailLayout?
     private var hasAuthor = false
+    private var canContinue = false
     private var communityTitle = ""
 
     var onAction: ((PostDetailAction) -> Void)?
@@ -38,11 +41,11 @@ final class PostDetailCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.backgroundColor = Palette.surface
-        for label in [communityLabel, metaLabel, titleLabel, bodyLabel] {
+        for label in [authorLabel, metaLabel, titleLabel, bodyLabel] {
             label.backgroundColor = Palette.surface
             contentView.addSubview(label)
         }
-        communityLabel.textColor = Palette.textPrimary
+        authorLabel.textColor = Palette.textPrimary
         metaLabel.textColor = Palette.textSecondary
         titleLabel.numberOfLines = 0
         titleLabel.textColor = Palette.textPrimary
@@ -51,7 +54,9 @@ final class PostDetailCell: UICollectionViewCell {
         bodyLabel.textColor = Palette.textPrimary
         gapView.backgroundColor = Palette.background
 
-        communityButton.accessibilityLabel = "Открыть сообщество"
+        // Like a feed cell: the author on top, "18 ч назад · Котики" under it.
+        // The name opens the profile, the line under it the community.
+        authorButton.addAction(UIAction { [weak self] _ in self?.onAction?(.openAuthor) }, for: .touchUpInside)
         communityButton.addAction(UIAction { [weak self] _ in self?.onAction?(.openCommunity) }, for: .touchUpInside)
 
         moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
@@ -61,13 +66,21 @@ final class PostDetailCell: UICollectionViewCell {
         moreButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
             guard let self else { return completion([]) }
             let act: (PostDetailAction) -> UIActionHandler = { action in { [weak self] _ in self?.onAction?(action) } }
-            completion([
+            var items: [UIMenuElement] = []
+            if canContinue {
+                items.append(UIMenu(options: .displayInline, children: [
+                    UIAction(title: "Добавить следующую часть", image: UIImage(systemName: "book.pages"),
+                             handler: act(.continueStory)),
+                ]))
+            }
+            items += [
                 UIAction(title: "Поделиться", image: UIImage(systemName: "square.and.arrow.up"), handler: act(.share)),
                 UIAction(title: "Скопировать ссылку", image: UIImage(systemName: "link"), handler: act(.copyLink)),
                 UIAction(title: communityTitle, image: UIImage(systemName: "square.grid.2x2"), handler: act(.openCommunity)),
                 UIAction(title: "Профиль автора", image: UIImage(systemName: "person"),
                          attributes: hasAuthor ? [] : .disabled, handler: act(.openAuthor)),
-            ])
+            ]
+            completion(items)
         }])
 
         commentsLabel.tintColor = Palette.iconSecondary
@@ -78,17 +91,18 @@ final class PostDetailCell: UICollectionViewCell {
         shareButton.addAction(UIAction { [weak self] _ in self?.onAction?(.share) }, for: .touchUpInside)
         votes.onVote = { [weak self] direction in self?.onAction?(.vote(direction)) }
 
-        for view in [avatar, communityButton, moreButton, votes, commentsLabel, shareButton, gapView, skeleton] as [UIView] {
+        for view in [avatar, authorButton, communityButton, moreButton, votes, commentsLabel, shareButton, gapView, skeleton] as [UIView] {
             contentView.addSubview(view)
         }
-        contentView.accessibilityElements = [communityButton, metaLabel, titleLabel, bodyLabel, votes, commentsLabel, shareButton, moreButton]
+        contentView.accessibilityElements = [titleLabel, authorButton, communityButton, bodyLabel, votes, commentsLabel, shareButton, moreButton]
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     /// `post` nil: the post is still loading, show its outline.
-    func configure(post: Post?, layout: PostDetailLayout?, fonts: ThreadFonts, animateVote: Bool) {
+    func configure(post: Post?, layout: PostDetailLayout?, fonts: ThreadFonts, canContinue: Bool, animateVote: Bool) {
         self.layout = layout
+        self.canContinue = canContinue
         guard let post, let layout else {
             skeleton.isHidden = false
             for view in contentView.subviews where view !== skeleton { view.isHidden = true }
@@ -97,16 +111,20 @@ final class PostDetailCell: UICollectionViewCell {
         skeleton.isHidden = true
         for view in contentView.subviews where view !== skeleton { view.isHidden = false }
 
-        avatar.configure(name: post.community.title)
-        communityLabel.font = fonts.postCommunity
-        communityLabel.text = post.community.title
+        let author = post.author?.username ?? "удалённый аккаунт"
+        avatar.configure(name: author)
+        authorLabel.font = fonts.postAuthor
+        authorLabel.text = author
+        authorButton.isEnabled = post.author != nil
+        authorButton.accessibilityLabel = "Автор \(author)"
         communityTitle = post.community.title
         hasAuthor = post.author != nil
         metaLabel.font = fonts.postMeta
-        var meta = [post.author?.username ?? "удалённый аккаунт", RelativeAge.text(from: post.createdAt, now: Date())]
+        var meta = [RelativeAge.text(from: post.createdAt, now: Date()), post.community.title]
         if post.editedAt != nil { meta.append("изменено") }
         if post.isNsfw { meta.append("18+") }
         metaLabel.text = meta.joined(separator: " · ")
+        communityButton.accessibilityLabel = "\(meta.joined(separator: ", ")). Открыть сообщество \(post.community.title)"
         titleLabel.font = fonts.postTitle
         titleLabel.text = post.title
         bodyLabel.font = fonts.postBody
@@ -133,9 +151,10 @@ final class PostDetailCell: UICollectionViewCell {
         skeleton.frame = contentView.bounds
         guard let layout else { return }
         avatar.frame = layout.avatarFrame
-        communityLabel.frame = layout.communityFrame
+        authorLabel.frame = layout.authorFrame
         metaLabel.frame = layout.metaFrame
-        communityButton.frame = layout.avatarFrame.union(layout.communityFrame)
+        authorButton.frame = layout.avatarFrame.union(layout.authorFrame)
+        communityButton.frame = layout.metaFrame.insetBy(dx: 0, dy: -4)
         moreButton.frame = layout.moreFrame
         titleLabel.frame = layout.titleFrame
         bodyLabel.frame = layout.bodyFrame
@@ -672,5 +691,108 @@ final class ThreadSkeletonView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         setNeedsLayout() // a reused cell's animation is gone after leaving the window
+    }
+}
+
+/// The story a post belongs to, in one quiet row:
+/// ‹  История · Часть 2 из 3  ›. The arrows open the neighbouring parts
+/// (dimmed when there is none, so nothing shifts), the middle opens the
+/// table of contents. On the last part its author gets "+" instead of ›.
+final class StoryCell: UICollectionViewCell {
+    static let reuseID = "StoryCell"
+    static let rowHeight: CGFloat = 48
+    /// The background strip that separates the row from the comments.
+    static let gap: CGFloat = 8
+    static let height: CGFloat = rowHeight + gap
+
+    private let previousButton = UIButton(type: .system)
+    private let nextButton = UIButton(type: .system)
+    private let partsButton = UIButton(type: .system)
+    private let topLine = UIView()
+    private let gapView = UIView()
+    private var previousID: Int64?
+    private var nextID: Int64?
+    private var continues = false
+
+    var onOpen: ((Int64) -> Void)?
+    var onContinue: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.backgroundColor = Palette.surface
+        topLine.backgroundColor = Palette.borderSubtle
+        gapView.backgroundColor = Palette.background
+        partsButton.showsMenuAsPrimaryAction = true
+        previousButton.addAction(UIAction { [weak self] _ in
+            if let id = self?.previousID { self?.onOpen?(id) }
+        }, for: .touchUpInside)
+        nextButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            if let id = nextID { onOpen?(id) } else if continues { onContinue?() }
+        }, for: .touchUpInside)
+        for view in [topLine, previousButton, partsButton, nextButton, gapView] as [UIView] {
+            contentView.addSubview(view)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func configure(story: StoryRef, currentID: Int64, parts: [StoryPart], previous: StoryPart?, next: StoryPart?,
+                   canContinue: Bool, fonts: ThreadFonts) {
+        previousID = previous?.postId
+        nextID = next?.postId
+        continues = next == nil && story.isLast && canContinue
+
+        let arrow = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        previousButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: arrow), for: .normal)
+        previousButton.isEnabled = previous != nil
+        previousButton.tintColor = previous != nil ? Palette.accent : Palette.iconDisabled
+        previousButton.accessibilityLabel = previous.map { "Часть \($0.part): \($0.title)" } ?? "Это первая часть"
+
+        if continues {
+            nextButton.setImage(UIImage(systemName: "plus", withConfiguration: arrow), for: .normal)
+            nextButton.accessibilityLabel = "Добавить следующую часть"
+        } else {
+            nextButton.setImage(UIImage(systemName: "chevron.right", withConfiguration: arrow), for: .normal)
+            nextButton.accessibilityLabel = next.map { "Часть \($0.part): \($0.title)" } ?? "Это последняя часть"
+        }
+        nextButton.isEnabled = next != nil || continues
+        nextButton.tintColor = nextButton.isEnabled ? Palette.accent : Palette.iconDisabled
+
+        var config = UIButton.Configuration.plain()
+        var muted = AttributeContainer()
+        muted.font = fonts.commentHeader
+        muted.foregroundColor = Palette.textSecondary
+        var strong = AttributeContainer()
+        strong.font = fonts.stub
+        strong.foregroundColor = Palette.textPrimary
+        config.attributedTitle = AttributedString("История · ", attributes: muted)
+            + AttributedString("Часть \(story.part) из \(story.parts)", attributes: strong)
+        config.image = UIImage(systemName: "book.pages", withConfiguration: UIImage.SymbolConfiguration(font: fonts.stub))
+        config.imagePadding = 6
+        config.baseForegroundColor = Palette.accent
+        config.titleLineBreakMode = .byTruncatingTail
+        partsButton.configuration = config
+        partsButton.accessibilityLabel = "История, часть \(story.part) из \(story.parts)"
+        partsButton.accessibilityHint = parts.count > 1 ? "Все части" : nil
+        partsButton.menu = parts.count > 1
+            ? UIMenu(title: parts.first.map { "«\($0.title)»" } ?? "", children: parts.map { part in
+                UIAction(title: "\(part.part). \(part.title)", state: part.postId == currentID ? .on : .off) { [weak self] _ in
+                    if part.postId != currentID { self?.onOpen?(part.postId) }
+                }
+            })
+            : nil
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let h = Self.rowHeight
+        topLine.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1 / max(traitCollection.displayScale, 1))
+        previousButton.frame = CGRect(x: 4, y: 0, width: 48, height: h)
+        nextButton.frame = CGRect(x: bounds.width - 52, y: 0, width: 48, height: h)
+        partsButton.frame = CGRect(x: previousButton.frame.maxX, y: 0,
+                                   width: nextButton.frame.minX - previousButton.frame.maxX, height: h)
+        gapView.frame = CGRect(x: 0, y: h, width: bounds.width, height: Self.gap)
     }
 }

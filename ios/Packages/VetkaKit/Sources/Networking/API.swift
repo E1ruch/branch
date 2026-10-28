@@ -112,11 +112,36 @@ public enum API {
         Endpoint(.get, "/v1/communities/search", query: [URLQueryItem(name: "q", value: query)])
     }
 
+    /// The signed-in user's subscriptions, all in one page.
+    public static func mySubscriptions() -> Endpoint<Page<Community>> {
+        Endpoint(.get, "/v1/me/subscriptions", auth: .required)
+    }
+
     public static func community(_ slug: String) -> Endpoint<Community> {
         Endpoint(.get, "/v1/communities/\(slug)")
     }
 
     // MARK: Posts, comments, votes
+
+    private struct NewPost: Encodable, Sendable {
+        let title: String
+        let body: String
+        let isNsfw: Bool
+        let continuesPostId: Int64?
+    }
+
+    /// `continues`: the author's post this one follows; the new post
+    /// becomes the next part of that story.
+    public static func createPost(community slug: String, title: String, body: String, isNSFW: Bool,
+                                  continues: Int64? = nil) -> Endpoint<Post> {
+        Endpoint(.post, "/v1/communities/\(slug)/posts",
+                 body: NewPost(title: title, body: body, isNsfw: isNSFW, continuesPostId: continues), auth: .required)
+    }
+
+    /// The parts of the post's story in order; empty outside a story.
+    public static func story(postID: Int64) -> Endpoint<Page<StoryPart>> {
+        Endpoint(.get, "/v1/posts/\(postID)/story")
+    }
 
     public static func post(_ id: Int64) -> Endpoint<Post> {
         Endpoint(.get, "/v1/posts/\(id)")
@@ -157,6 +182,10 @@ public enum API {
 
     public static func user(_ username: String) -> Endpoint<User> {
         Endpoint(.get, "/v1/users/\(username)")
+    }
+
+    public static func userPosts(_ username: String, cursor: String? = nil) -> Endpoint<Page<Post>> {
+        Endpoint(.get, "/v1/users/\(username)/posts", query: page(cursor))
     }
 
     private static func page(_ cursor: String?, _ extra: (String, String)...) -> [URLQueryItem] {

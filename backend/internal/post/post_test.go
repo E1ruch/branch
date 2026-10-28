@@ -289,3 +289,98 @@ func TestByAuthor(t *testing.T) {
 		t.Errorf("seen by the author: %s, want a4 a2-nsfw a1", got)
 	}
 }
+
+func TestStories(t *testing.T) {
+	e := newEnv(t)
+	author := testdb.CreateUser(t, e.db, "author")
+	stranger := testdb.CreateUser(t, e.db, "stranger")
+	e.community(t, "news", false)
+	continues := func(id int64) *int64 { return &id }
+
+	first, _ := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "Ремонт Нивы"})
+	if first.Story != nil {
+		t.Fatalf("a lone post is not a story: %+v", first.Story)
+	}
+	second, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "Часть два", ContinuesPostID: continues(first.ID)})
+	if err != nil || second.Story == nil || second.Story.Part != 2 || second.Story.Parts != 2 {
+		t.Fatalf("second part: %+v, %v", second.Story, err)
+	}
+	first, _ = e.svc.Get(e.ctx, first.ID, 0)
+	if first.Story == nil || first.Story.ID != second.Story.ID || first.Story.Part != 1 || first.Story.Parts != 2 {
+		t.Fatalf("the first post joins the story: %+v", first.Story)
+	}
+	// Continuing an earlier part still appends at the end.
+	third, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "Часть три", ContinuesPostID: continues(first.ID)})
+	if err != nil || third.Story.Part != 3 || third.Story.Parts != 3 {
+		t.Fatalf("third part: %+v, %v", third.Story, err)
+	}
+
+	if _, err := e.svc.Create(e.ctx, stranger, "news", CreateInput{Title: "x", ContinuesPostID: continues(first.ID)}); !errors.Is(err, ErrNotStoryAuthor) {
+		t.Errorf("stranger continues: %v", err)
+	}
+	if _, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "x", ContinuesPostID: continues(999999)}); !errors.Is(err, ErrStoryNotFound) {
+		t.Errorf("unknown post: %v", err)
+	}
+
+	// A deleted part drops out of the numbering; the others close the gap.
+	if err := e.svc.Delete(e.ctx, second.ID, author); err != nil {
+		t.Fatal(err)
+	}
+	third, _ = e.svc.Get(e.ctx, third.ID, 0)
+	if third.Story.Part != 2 || third.Story.Parts != 2 {
+		t.Errorf("after deleting part 2: %+v", third.Story)
+	}
+	parts, err := e.svc.StoryParts(e.ctx, third.ID)
+	if err != nil || len(parts) != 2 || parts[0].PostID != first.ID || parts[1].PostID != third.ID || parts[1].Part != 2 {
+		t.Errorf("parts: %+v, %v", parts, err)
+	}
+	if _, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "x", ContinuesPostID: continues(second.ID)}); !errors.Is(err, ErrStoryNotFound) {
+		t.Errorf("continue a deleted part: %v", err)
+	}
+
+	feed, _ := e.svc.FeedAll(e.ctx, FeedQuery{Sort: SortNew, Limit: 10})
+	for _, p := range feed {
+		if p.ID == third.ID && (p.Story == nil || p.Story.Part != 2) {
+			t.Errorf("feed loses the part: %+v", p.Story)
+		}
+	}
+	lone, _ := e.svc.Create(e.ctx, stranger, "news", CreateInput{Title: "один"})
+	if parts, err := e.svc.StoryParts(e.ctx, lone.ID); err != nil || len(parts) != 0 {
+		t.Errorf("lone post parts: %+v, %v", parts, err)
+	}
+}
+
+func TestStoryPartsPublishedAtOnce(t *testing.T) {
+	e := newEnv(t)
+	author := testdb.CreateUser(t, e.db, "author")
+	e.community(t, "news", false)
+	first, _ := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "Начало"})
+
+	const n = 5
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "часть", ContinuesPostID: &first.ID})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent part: %v", err)
+		}
+	}
+	parts, _ := e.svc.StoryParts(e.ctx, first.ID)
+	if len(parts) != n+1 {
+		t.Fatalf("parts = %d, want %d", len(parts), n+1)
+	}
+	for i, p := range parts {
+		if p.Part != i+1 {
+			t.Errorf("part %d numbered %d", i, p.Part)
+		}
+	}
+}

@@ -30,6 +30,20 @@ type postDTO struct {
 	EditedAt      *time.Time     `json:"edited_at"`
 	Community     postCommunity  `json:"community"`
 	Author        *postAuthorDTO `json:"author"`
+	Story         *storyRefDTO   `json:"story"` // null outside a story
+}
+
+type storyRefDTO struct {
+	ID    int64 `json:"id"`
+	Part  int   `json:"part"`
+	Parts int   `json:"parts"`
+}
+
+type storyPartDTO struct {
+	PostID    int64     `json:"post_id"`
+	Title     string    `json:"title"`
+	Part      int       `json:"part"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type postCommunity struct {
@@ -57,6 +71,9 @@ func toPostDTO(p post.Post) postDTO {
 		CreatedAt:     p.CreatedAt,
 		EditedAt:      p.EditedAt,
 		Community:     postCommunity{ID: p.Community.ID, Slug: p.Community.Slug, Title: p.Community.Title},
+	}
+	if p.Story != nil {
+		dto.Story = &storyRefDTO{ID: p.Story.ID, Part: p.Story.Part, Parts: p.Story.Parts}
 	}
 	if p.Author != nil {
 		dto.Author = &postAuthorDTO{ID: p.Author.ID, Username: p.Author.Username, DisplayName: p.Author.DisplayName}
@@ -127,15 +144,16 @@ func (h *postHandlers) feedCommunity(w http.ResponseWriter, r *http.Request) {
 
 func (h *postHandlers) create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-		IsNSFW bool   `json:"is_nsfw"`
+		Title           string `json:"title"`
+		Body            string `json:"body"`
+		IsNSFW          bool   `json:"is_nsfw"`
+		ContinuesPostID *int64 `json:"continues_post_id"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	p, err := h.svc.Create(r.Context(), viewer(r), chi.URLParam(r, "slug"),
-		post.CreateInput{Title: req.Title, Body: req.Body, IsNSFW: req.IsNSFW})
+		post.CreateInput{Title: req.Title, Body: req.Body, IsNSFW: req.IsNSFW, ContinuesPostID: req.ContinuesPostID})
 	h.respond(w, r, http.StatusCreated, p, err)
 }
 
@@ -146,6 +164,25 @@ func (h *postHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.svc.Get(r.Context(), id, viewer(r))
 	h.respond(w, r, http.StatusOK, p, err)
+}
+
+// story: GET /v1/posts/{id}/story — the story's parts in order, for the
+// post screen's table of contents. Empty for a post outside a story.
+func (h *postHandlers) story(w http.ResponseWriter, r *http.Request) {
+	id, ok := postID(w, r)
+	if !ok {
+		return
+	}
+	parts, err := h.svc.StoryParts(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := page[storyPartDTO]{Items: make([]storyPartDTO, len(parts))}
+	for i, p := range parts {
+		out.Items[i] = storyPartDTO{PostID: p.PostID, Title: p.Title, Part: p.Part, CreatedAt: p.CreatedAt}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *postHandlers) edit(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +240,10 @@ func (h *postHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "community not found")
 	case errors.Is(err, post.ErrForbidden):
 		writeError(w, http.StatusForbidden, "forbidden", "only the author can do this")
+	case errors.Is(err, post.ErrStoryNotFound):
+		writeFieldError(w, http.StatusUnprocessableEntity, "story_not_found", "continues_post_id", "the post to continue is gone")
+	case errors.Is(err, post.ErrNotStoryAuthor):
+		writeFieldError(w, http.StatusForbidden, "not_story_author", "continues_post_id", "only the author can continue the story")
 	case errors.Is(err, post.ErrRateLimited):
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many posts, try again later")
 	default:

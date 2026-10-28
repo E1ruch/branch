@@ -103,6 +103,7 @@ func NewRouter(d Deps) http.Handler {
 
 			r.Route("/posts/{id}", func(r chi.Router) {
 				r.Get("/", postH.get)
+				r.Get("/story", postH.story)
 				r.With(requireAuth).Patch("/", postH.edit)
 				r.With(requireAuth).Delete("/", postH.delete)
 				r.With(requireAuth).Put("/vote", voteH.votePost)
