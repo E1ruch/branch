@@ -82,7 +82,7 @@ public struct AppRootView: View {
         .sheet(isPresented: $router.isComposePresented, onDismiss: openPublishedPost) {
             let continuing = router.composeContinuing
             ComposeView(service: LiveComposeService(client: app.client, username: app.session.me?.username),
-                        storage: UserDefaultsDraftStorage(userID: app.session.me?.id ?? 0),
+                        storage: UserDefaultsDraftStorage(userID: app.session.me?.id),
                         community: continuing.map {
                             PickedCommunity(slug: $0.community.slug, title: $0.community.title, isNSFW: false)
                         },

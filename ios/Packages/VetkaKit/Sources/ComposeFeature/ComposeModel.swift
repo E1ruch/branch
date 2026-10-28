@@ -111,9 +111,17 @@ public protocol DraftStorage: Sendable {
 /// another person's text.
 public struct UserDefaultsDraftStorage: DraftStorage {
     private let key: String
+    private static let lastUserKey = "compose.lastUserID"
 
-    public init(userID: Int64) {
-        key = "compose.draft.\(userID)"
+    /// `userID` nil: the profile has not loaded yet (offline launch). The
+    /// draft is then the last known account's, not a shared one.
+    public init(userID: Int64?) {
+        let defaults = UserDefaults.standard
+        if let userID {
+            defaults.set(userID, forKey: Self.lastUserKey)
+        }
+        let id = userID ?? (defaults.object(forKey: Self.lastUserKey) as? Int64) ?? 0
+        key = "compose.draft.\(id)"
     }
 
     public func load() -> Draft? {
@@ -211,9 +219,15 @@ public final class ComposeModel {
 
     public var isNSFW: Bool { draft.isNSFW || nsfwIsForced }
 
-    public var canPublish: Bool {
-        !isPublishing && draft.community != nil && !trimmedTitle.isEmpty
+    /// Everything but the community is in order: the publish button is
+    /// live and, without a community, opens the settings instead.
+    public var isReadyExceptCommunity: Bool {
+        !isPublishing && !trimmedTitle.isEmpty
             && draft.title.count <= Self.maxTitle && draft.body.count <= Self.maxBody
+    }
+
+    public var canPublish: Bool {
+        isReadyExceptCommunity && draft.community != nil
     }
 
     /// What is missing, for the button's accessibility hint.
