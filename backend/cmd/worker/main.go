@@ -1,5 +1,6 @@
 // Command worker runs background jobs: folding vote deltas into counters,
-// hot rank and karma once a second, and hourly cleanup.
+// hot rank and karma once a second, counting popular searches every ten
+// minutes, and hourly cleanup.
 package main
 
 import (
@@ -25,6 +26,8 @@ const (
 	// transaction (and the row locks it holds on posts) short.
 	flushBatch    = 5000
 	pruneInterval = time.Hour
+	// Popular queries lag at most this much behind what people search.
+	popularInterval = 10 * time.Minute
 )
 
 func main() {
@@ -54,9 +57,15 @@ func run() error {
 	log.Info("worker started", slog.Duration("flush_interval", flushInterval))
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
-	var pruned time.Time
+	var pruned, counted time.Time
 	for {
 		flushVotes(ctx, db, log)
+		if time.Since(counted) >= popularInterval {
+			counted = time.Now()
+			if err := search.RefreshPopular(ctx, db, counted); err != nil {
+				log.Error("count popular searches", slog.Any("err", err))
+			}
+		}
 		if time.Since(pruned) >= pruneInterval {
 			pruned = time.Now()
 			if n, err := search.Prune(ctx, db, pruned); err != nil {

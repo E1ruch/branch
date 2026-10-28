@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/ed25519"
 	"net/http"
 	"net/url"
@@ -48,8 +49,26 @@ func TestSearchAPI(t *testing.T) {
 	if status, _ := c.call("POST", "/v1/search/queries", tok, map[string]any{"query": "игры"}); status != http.StatusNoContent {
 		t.Errorf("record: %d", status)
 	}
+	// Rate limited once the limiter says so.
+	limited := client{t, NewRouter(Deps{
+		Logger: discard, RequestTimeout: 5 * time.Second,
+		Auth: auth.NewService(db, issuer, nil, nil, auth.Config{}, discard), Users: user.NewStore(db),
+		Communities: community.NewService(db), Posts: post.NewService(db, allowAll{}), Search: search.NewService(db),
+		SearchLimiter: denyAll{},
+	})}
+	if status, body := limited.call("GET", "/v1/search/users?q=game", "", nil); status != http.StatusTooManyRequests || errCode(body) != "rate_limited" {
+		t.Errorf("limited: %d %v", status, body)
+	}
+	if status, _ := limited.call("GET", "/v1/search/popular", "", nil); status != http.StatusOK {
+		t.Errorf("popular is not limited: %d", status)
+	}
+
 	status, body = c.call("GET", "/v1/search/popular", "", nil)
 	if items := body["items"].([]any); status != http.StatusOK || len(items) != 1 || items[0] != "игры" {
 		t.Errorf("popular (from communities): %d %v", status, body)
 	}
 }
+
+type denyAll struct{}
+
+func (denyAll) Allow(context.Context, string, int, time.Duration) (bool, error) { return false, nil }

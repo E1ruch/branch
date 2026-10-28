@@ -64,11 +64,12 @@ public struct SearchScreen: View {
             .scrollContentBackground(.hidden)
             .shimmer()
             .allowsHitTesting(false)
-        case .failed:
+        case let .failed(rateLimited):
             ContentUnavailableView {
-                Label("Не удалось найти", systemImage: "wifi.exclamationmark")
+                Label(rateLimited ? "Слишком много запросов" : "Не удалось найти",
+                      systemImage: rateLimited ? "hourglass" : "wifi.exclamationmark")
             } description: {
-                Text("Проверьте соединение и попробуйте ещё раз.")
+                Text(rateLimited ? "Подождите минуту и попробуйте снова." : "Проверьте соединение и попробуйте ещё раз.")
             }
         case let .loaded(results):
             SearchResults(model: model, results: results, go: go)

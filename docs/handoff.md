@@ -43,7 +43,7 @@
 ```bash
 cd backend
 make infra-up      # Postgres + Redis в Docker (Docker пользователь запускает сам)
-make migrate       # применено 00001–00010
+make migrate       # применено 00001–00011
 make run           # API на :8080 (слушает все интерфейсы)
 make worker        # обязателен: без него счёт и «горячее» не двигаются
 make test          # TEST_DATABASE_URL уже задан в Makefile; каждый тест — своя БД
@@ -69,7 +69,7 @@ make test          # TEST_DATABASE_URL уже задан в Makefile; кажды
   (или попросить пользователя сделать `sudo xcode-select -s …`; без этого не
   работает и панель симулятора Claude).
 - Тесты пакета: `cd ios/Packages/VetkaKit && xcodebuild test -scheme VetkaKit
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` (86 тестов, Swift Testing).
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` (87 тестов, Swift Testing).
 - Приложение и UI-тесты: `cd ios && xcodebuild test -project branch.xcodeproj
   -scheme branch -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
   -parallel-testing-enabled NO -only-testing:branchUITests/branchUITests/…`.
@@ -178,7 +178,10 @@ iOS:
   /v1/search/queries` (миграция 00010). Популярные — запросы, которые за
   неделю искали ≥3 разных человека (считаются только «осмысленные»:
   Return, тап по результату или чипу, только со входом), добивается
-  названиями крупных сообществ; старые строки чистит воркер раз в час.
+  названиями крупных сообществ. Потом поиск разобран под нагрузку (цифры и
+  решения — в architecture.md, «Поиск»): посты по «горячести», люди —
+  ник по началу + имя, от 3 букв, популярные считает воркер раз в 10 минут,
+  лимит 90 запросов в минуту.
 - Шаг 4, часть 1 — сообщества. Бэкенд: правила (`communities.rules jsonb`,
   миграция 00009, PATCH `rules` заменяет список, отдаются только в одиночном
   сообществе). iOS: новый модуль `FeedUI` (лента вынесена из `FeedFeature`,
@@ -265,6 +268,14 @@ Apple при удалении аккаунта.
   команд с аргументами использовать функции.
 - Даты от Go: RFC 3339 с дробью и без — `JSON.decoder()` понимает оба.
 - Миграции: уже применённые не редактировать, только новые файлы.
+- **Тесты бэкенда — только `make test`**: голый `go test ./...` не видит
+  `TEST_DATABASE_URL` и молча *пропускает* все тесты с базой (SKIP, а итог —
+  `ok`). Так однажды прошла сломанная SQL.
+- Нагрузку поиска проверять на отдельной базе: `CREATE DATABASE vetka_bench`,
+  `DATABASE_URL=…/vetka_bench go run ./cmd/migrate up`, данные через
+  `generate_series` (функция, вызываемая на каждую строку, — иначе Postgres
+  посчитает подзапрос один раз и все строки выйдут одинаковыми), затем
+  `EXPLAIN ANALYZE` тех же запросов; базу потом удалить.
 - **TabView и «+»**: нельзя давать TabView выбирать вкладку-кнопку даже на
   миг (биндинг отказывает) — стек ленты переподключается, и экраны, открытые
   после, остаются без safe area (под навбаром). Поэтому поверх центральной

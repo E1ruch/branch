@@ -127,7 +127,9 @@ public final class SearchModel {
         case idle
         case loading
         case loaded(Results)
-        case failed
+        /// `rateLimited`: the server asked to slow down (429), not a network
+        /// problem.
+        case failed(rateLimited: Bool)
     }
 
     public var query = ""
@@ -144,7 +146,10 @@ public final class SearchModel {
     /// The query whose results are on screen.
     @ObservationIgnored private var shownQuery = ""
 
+    /// Communities are few, so two letters are enough for them; people and
+    /// posts need three (the server ignores shorter queries for them).
     static let minQueryLength = 2
+    static let minPeopleAndPostsLength = 3
     static let maxRecent = 10
     /// Rows per section under Всё; "Все" opens the rest.
     static let previewCount = 3
@@ -176,7 +181,7 @@ public final class SearchModel {
             shownQuery = ""
             return
         }
-        guard text != shownQuery || phase == .failed else { return }
+        if case .failed = phase {} else if text == shownQuery { return }
         do {
             try await Task.sleep(for: .milliseconds(300))
         } catch {
@@ -184,9 +189,10 @@ public final class SearchModel {
         }
         if case .loaded = phase {} else { phase = .loading } // old results stay while the next arrive
 
+        let everything = text.count >= Self.minPeopleAndPostsLength
         async let communities = result { () async throws(APIError) in try await self.service.communities(text) }
-        async let users = result { () async throws(APIError) in try await self.service.users(text) }
-        async let posts = result { () async throws(APIError) in try await self.service.posts(text) }
+        async let users = result { () async throws(APIError) in everything ? try await self.service.users(text) : [] }
+        async let posts = result { () async throws(APIError) in everything ? try await self.service.posts(text) : [] }
         let (c, u, p) = await (communities, users, posts)
         guard !Task.isCancelled, text == trimmedQuery else { return }
 
@@ -197,7 +203,8 @@ public final class SearchModel {
             phase = .loaded(Results(communities: c.map(\.slug), users: u, posts: p.map(\.id)))
             shownQuery = text
         default:
-            phase = .failed
+            let limited = [c.error, u.error, p.error].contains { $0?.code == "rate_limited" }
+            phase = .failed(rateLimited: limited)
         }
     }
 
@@ -245,5 +252,12 @@ public final class SearchModel {
         } catch {
             return .failure(error)
         }
+    }
+}
+
+private extension Result {
+    var error: Failure? {
+        if case let .failure(error) = self { return error }
+        return nil
     }
 }

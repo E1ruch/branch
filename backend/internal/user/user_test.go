@@ -155,4 +155,11 @@ func TestSearch(t *testing.T) {
 	if got, _ := s.Search(ctx, "иванова", 10); len(got) != 1 || got[0].ID != maria {
 		t.Errorf("display name search = %+v", got)
 	}
+	// Usernames match from the start only; display names anywhere.
+	if got, _ := s.Search(ctx, "petr", 10); len(got) != 0 {
+		t.Errorf("middle of a username matched: %+v", got)
+	}
+	if got, _ := s.Search(ctx, "iv", 10); len(got) != 0 {
+		t.Errorf("two letters matched: %+v", got)
+	}
 }

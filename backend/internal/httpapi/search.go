@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 
-	"vetka/internal/post"
 	"vetka/internal/search"
 	"vetka/internal/user"
 )
@@ -14,11 +16,49 @@ import (
 type searchHandlers struct {
 	svc   *search.Service
 	users *user.Store
-	posts *post.Service
+	posts *postHandlers // search results are a feed page like any other
 	log   *slog.Logger
 }
 
 const searchLimit = 25
+
+// Limiter caps requests per key and window (Redis in production).
+type Limiter interface {
+	Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error)
+}
+
+const (
+	// One typed query costs three requests (communities, people, posts),
+	// after a 300 ms pause in typing: 90 a minute is 30 searches, far more
+	// than a person makes and far less than a script needs to hurt.
+	searchRequestsPerWindow = 90
+	searchWindow            = time.Minute
+)
+
+// limitSearch caps search requests per account, or per address for anonymous
+// ones. A broken limiter lets requests through: search is not worth an
+// outage.
+func limitSearch(l Limiter, log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if l == nil {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := "search:ip:" + clientAddr(r)
+			if id := viewer(r); id != 0 {
+				key = "search:user:" + strconv.FormatInt(id, 10)
+			}
+			ok, err := l.Allow(r.Context(), key, searchRequestsPerWindow, searchWindow)
+			if err != nil {
+				log.WarnContext(r.Context(), "search limiter failed", slog.Any("err", err))
+			} else if !ok {
+				writeError(w, http.StatusTooManyRequests, "rate_limited", "too many searches, try again in a minute")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 func (h *searchHandlers) people(w http.ResponseWriter, r *http.Request) {
 	items, err := h.users.Search(r.Context(), r.URL.Query().Get("q"), searchLimit)
@@ -33,17 +73,15 @@ func (h *searchHandlers) people(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// postResults: GET /v1/search/posts?q=&cursor= — hottest matches first,
+// paged like a feed.
 func (h *searchHandlers) postResults(w http.ResponseWriter, r *http.Request) {
-	items, err := h.posts.Search(r.Context(), r.URL.Query().Get("q"), viewer(r), searchLimit)
-	if err != nil {
-		internalError(w, r, h.log, err)
+	q, ok := feedQuery(w, r)
+	if !ok {
 		return
 	}
-	resp := page[postDTO]{Items: make([]postDTO, len(items))}
-	for i, p := range items {
-		resp.Items[i] = toPostDTO(p)
-	}
-	writeJSON(w, http.StatusOK, resp)
+	items, err := h.posts.svc.Search(r.Context(), r.URL.Query().Get("q"), q)
+	h.posts.writeFeed(w, r, q, items, err)
 }
 
 // popular: GET /v1/search/popular → {"items": ["юмор", "игры", …]}.

@@ -30,6 +30,8 @@ type Deps struct {
 	Votes       *vote.Service
 	Comments    *comment.Service
 	Search      *search.Service
+	// Caps search requests; nil (tests) leaves them uncapped.
+	SearchLimiter Limiter
 
 	TelegramBot   string // bot username for the login widget; empty disables it
 	TelegramToken string // signs fake logins
@@ -44,7 +46,8 @@ func NewRouter(d Deps) http.Handler {
 	postH := &postHandlers{svc: d.Posts, log: d.Logger}
 	voteH := &voteHandlers{svc: d.Votes, log: d.Logger}
 	commentH := &commentHandlers{svc: d.Comments, log: d.Logger}
-	searchH := &searchHandlers{svc: d.Search, users: d.Users, posts: d.Posts, log: d.Logger}
+	searchH := &searchHandlers{svc: d.Search, users: d.Users, posts: postH, log: d.Logger}
+	searchLimit := limitSearch(d.SearchLimiter, d.Logger)
 	userH := &userHandlers{users: d.Users, posts: postH, comments: d.Comments, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, botToken: d.TelegramToken, fake: d.TelegramFake,
 		publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
@@ -123,15 +126,15 @@ func NewRouter(d Deps) http.Handler {
 			})
 
 			r.Route("/search", func(r chi.Router) {
-				r.Get("/users", searchH.people)
-				r.Get("/posts", searchH.postResults)
+				r.With(searchLimit).Get("/users", searchH.people)
+				r.With(searchLimit).Get("/posts", searchH.postResults)
 				r.Get("/popular", searchH.popular)
 				r.With(requireAuth).Post("/queries", searchH.record)
 			})
 
 			r.Route("/communities", func(r chi.Router) {
 				r.Get("/", commH.list)
-				r.Get("/search", commH.search)
+				r.With(searchLimit).Get("/search", commH.search)
 				r.With(requireAuth).Post("/", commH.create)
 				r.Route("/{slug}", func(r chi.Router) {
 					r.Get("/", commH.get)

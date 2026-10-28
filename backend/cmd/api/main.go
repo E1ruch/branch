@@ -95,6 +95,7 @@ func run() error {
 			Votes:         vote.NewService(db, redis.Limiter{Client: rdb}),
 			Comments:      comment.NewService(db, redis.Limiter{Client: rdb}),
 			Search:        search.NewService(db),
+			SearchLimiter: redis.Limiter{Client: rdb},
 			TelegramBot:   cfg.TelegramBotUsername,
 			TelegramToken: cfg.TelegramBotToken,
 			TelegramFake:  cfg.TelegramFakeLogin,

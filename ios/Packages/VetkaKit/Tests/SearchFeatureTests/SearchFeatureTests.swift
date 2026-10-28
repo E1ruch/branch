@@ -83,10 +83,18 @@ final class MemoryRecent: RecentStorage {
         let m = model(service)
         m.query = "игры"
         await m.search()
-        #expect(m.phase == .failed)
+        #expect(m.phase == .failed(rateLimited: false))
         await service.setFails(false)
         await m.search() // the same query again after a failure
         if case .loaded = m.phase {} else { Issue.record("not retried: \(m.phase)") }
+    }
+
+    @Test func twoLettersSearchOnlyCommunities() async {
+        let service = FakeSearch()
+        let m = model(service)
+        m.query = "иг"
+        await m.search()
+        #expect(m.phase == .loaded(SearchModel.Results(communities: ["igry"], users: [], posts: [])))
     }
 
     @Test func recentKeepsTenNewestFirstWithoutDuplicates() {

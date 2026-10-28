@@ -51,6 +51,13 @@ func TestPopularNeedsSeveralPeopleAndFallsBackToCommunities(t *testing.T) {
 		}
 	}
 
+	// Before the worker counts, the communities fill in.
+	if got, _ := s.Popular(ctx, 3); !slices.Equal(got, []string{"кино", "игры"}) {
+		t.Errorf("uncounted popular = %v", got)
+	}
+	if err := RefreshPopular(ctx, db, now); err != nil {
+		t.Fatal(err)
+	}
 	got, err := s.Popular(ctx, 3)
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +70,9 @@ func TestPopularNeedsSeveralPeopleAndFallsBackToCommunities(t *testing.T) {
 	now = now.Add(8 * 24 * time.Hour)
 	if n, err := Prune(ctx, db, now); err != nil || n != 4 {
 		t.Errorf("prune = %d, %v; want 4 rows", n, err)
+	}
+	if err := RefreshPopular(ctx, db, now); err != nil {
+		t.Fatal(err)
 	}
 	if got, _ := s.Popular(ctx, 3); !slices.Equal(got, []string{"кино", "игры"}) {
 		t.Errorf("after prune = %v", got)

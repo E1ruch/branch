@@ -397,7 +397,7 @@ func TestSearch(t *testing.T) {
 	e.insertPost(t, adult, author, "Игры", 50, false)           // NSFW community
 	e.insertPost(t, open, author, "Про кино", 99, false)
 
-	got, err := e.svc.Search(e.ctx, "  игры ", 0, 10)
+	got, err := e.svc.Search(e.ctx, "  игры ", FeedQuery{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,13 +405,22 @@ func TestSearch(t *testing.T) {
 	for _, p := range got {
 		ids = append(ids, p.ID)
 	}
-	if len(ids) != 2 || !slices.Contains(ids, hot) || !slices.Contains(ids, cold) {
-		t.Errorf("search = %v, want %d and %d (no NSFW, no unrelated)", ids, hot, cold)
+	if !slices.Equal(ids, []int64{hot, cold}) {
+		t.Errorf("search = %v, want %d then %d: hottest first, no NSFW, no unrelated", ids, hot, cold)
 	}
-	if got, _ := e.svc.Search(e.ctx, "и", 0, 10); len(got) != 0 {
-		t.Errorf("one letter matched %d posts", len(got))
+
+	// Pages like a feed.
+	first, _ := e.svc.Search(e.ctx, "игры", FeedQuery{Limit: 1})
+	after := CursorAfter(first[0])
+	second, _ := e.svc.Search(e.ctx, "игры", FeedQuery{Limit: 1, After: &after})
+	if len(first) != 1 || first[0].ID != hot || len(second) != 1 || second[0].ID != cold {
+		t.Errorf("pages = %v, %v", first, second)
 	}
-	if got, _ := e.svc.Search(e.ctx, "%", 0, 10); len(got) != 0 {
+
+	if got, _ := e.svc.Search(e.ctx, "иг", FeedQuery{Limit: 10}); len(got) != 0 {
+		t.Errorf("two letters matched %d posts", len(got))
+	}
+	if got, _ := e.svc.Search(e.ctx, "%%%", FeedQuery{Limit: 10}); len(got) != 0 {
 		t.Errorf("%% is a wildcard: matched %d posts", len(got))
 	}
 }

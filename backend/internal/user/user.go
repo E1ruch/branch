@@ -103,32 +103,69 @@ func (s *Store) GetByUsername(ctx context.Context, username string) (User, error
 		`SELECT `+Columns+` FROM users WHERE username = $1 AND deleted_at IS NULL`, username))
 }
 
-// Search finds people by username or display name (trigram indexes): an
-// exact username first, then closer matches, then the more active.
+// MinSearchLen, as for posts: two letters match a large part of everyone.
+const MinSearchLen = 3
+
+// Search finds people: the exact username, then usernames that start with
+// the query, then display names that contain it.
+//
+// Each part is its own query with a plan that stays cheap however many
+// people match (measured on 200k users: well under a millisecond each):
+//   - usernames by their start (people type "@ив…"), read in the order of
+//     users_username_prefix_idx, so the scan stops at the limit;
+//   - display names anywhere through the trigram index, the first 500
+//     matches only, the more active of them first. Ordering all matches by
+//     karma (or closeness) made Postgres score and sort every "Иван".
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]User, error) {
 	query = strings.TrimSpace(query)
-	if utf8.RuneCountInString(query) < 2 {
+	if utf8.RuneCountInString(query) < MinSearchLen {
 		return []User{}, nil
 	}
-	rows, err := s.db.Query(ctx, `SELECT `+Columns+` FROM users
-		WHERE deleted_at IS NULL AND (username::text ILIKE $1 OR display_name ILIKE $1)
-		ORDER BY username = $2::citext DESC,
-		         greatest(similarity(username::text, $2), similarity(coalesce(display_name, ''), $2)) DESC,
-		         post_karma + comment_karma DESC, id
-		LIMIT $3`, "%"+likeEscaper.Replace(query)+"%", query, limit)
-	if err != nil {
+	out := []User{}
+	seen := map[int64]bool{}
+	add := func(rows pgx.Rows, err error) error {
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			u, err := Scan(rows)
+			if err != nil {
+				return err
+			}
+			if !seen[u.ID] && len(out) < limit {
+				seen[u.ID] = true
+				out = append(out, u)
+			}
+		}
+		return rows.Err()
+	}
+
+	escaped := likeEscaper.Replace(query)
+	if err := add(s.db.Query(ctx, `SELECT `+Columns+` FROM users WHERE username = $1 AND deleted_at IS NULL`, query)); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []User{}
-	for rows.Next() {
-		u, err := Scan(rows)
-		if err != nil {
+	if err := add(s.db.Query(ctx, `SELECT `+Columns+` FROM users
+		WHERE deleted_at IS NULL AND lower(username::text) LIKE $1
+		ORDER BY lower(username::text) USING ~<~
+		LIMIT $2`, strings.ToLower(escaped)+"%", limit)); err != nil {
+		return nil, err
+	}
+	if len(out) < limit {
+		// MATERIALIZED keeps the 500 apart: inlined, Postgres would merge the
+		// limits and walk users by karma looking for a match.
+		if err := add(s.db.Query(ctx, `
+			WITH matches AS MATERIALIZED (
+				SELECT id, post_karma + comment_karma AS karma FROM users
+				WHERE deleted_at IS NULL AND display_name ILIKE $1
+				LIMIT 500
+			)
+			SELECT `+Columns+` FROM users JOIN matches USING (id)
+			ORDER BY matches.karma DESC, id LIMIT $2`, "%"+escaped+"%", limit)); err != nil {
 			return nil, err
 		}
-		out = append(out, u)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
