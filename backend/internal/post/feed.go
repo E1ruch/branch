@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -133,6 +135,24 @@ func (s *Service) FeedSubscriptions(ctx context.Context, userID int64, q FeedQue
 		ORDER BY ` + order + ` LIMIT ` + limit
 	return s.collect(ctx, sql, args)
 }
+
+// Search matches titles anywhere (trigram index), closer matches first,
+// then the hotter. One page: search is for finding a post, not for
+// scrolling through all of them. NSFW posts and communities stay out, as
+// in every discovery list.
+func (s *Service) Search(ctx context.Context, query string, viewer int64, limit int) ([]Post, error) {
+	query = strings.TrimSpace(query)
+	if utf8.RuneCountInString(query) < 2 {
+		return []Post{}, nil
+	}
+	sql := fmt.Sprintf(selectPost(true), "posts") + `
+		WHERE p.deleted_at IS NULL AND NOT p.is_nsfw AND NOT c.is_nsfw AND p.title ILIKE $2
+		ORDER BY similarity(p.title, $3) DESC, p.hot_rank DESC, p.id DESC
+		LIMIT $4`
+	return s.collect(ctx, sql, []any{viewer, "%" + likeEscaper.Replace(query) + "%", query, limit})
+}
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // ByAuthor lists a user's posts, newest first, through posts_author_idx.
 // NSFW posts are shown only to the author: elsewhere a profile would bypass

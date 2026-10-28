@@ -23,6 +23,8 @@ final class AppRouter {
     var composeContinuing: Post?
     /// The community the composer opens in, when opened from its page.
     var composeCommunity: Community?
+    /// Bumped by the magnifier in the feed header: the search field takes focus.
+    var searchFocusRequest = 0
     /// Set by AppEnvironment: posting needs an account.
     var isSignedIn: () -> Bool = { false }
 

@@ -5,7 +5,7 @@ import PackageDescription
 // so dependencies are explicit, `internal` is the default boundary, and
 // incremental builds only recompile what changed.
 //
-//   AppFeature ─▶ Communities/Auth/Feed/Post/ComposeFeature ─▶ FeedUI ─▶ Stores, DesignSystem
+//   AppFeature ─▶ Communities/Search/Auth/Feed/Post/ComposeFeature ─▶ FeedUI ─▶ Stores, DesignSystem
 //       │                │                                          │
 //       └──▶ Session ─▶ Networking ─▶ Core ◀────────────────────────┘
 //
@@ -28,11 +28,12 @@ let package = Package(
         .target(name: "FeedUI", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
         .target(name: "CommunitiesFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
         .target(name: "AuthFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem"]),
+        .target(name: "SearchFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
         .target(name: "FeedFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
         .target(name: "PostFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
         .target(name: "ComposeFeature", dependencies: ["Core", "Networking", "DesignSystem"]),
         .target(name: "AppFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem", "Stores", "FeedUI",
-                                                   "CommunitiesFeature", "AuthFeature", "FeedFeature", "PostFeature", "ComposeFeature"]),
+                                                   "CommunitiesFeature", "SearchFeature", "AuthFeature", "FeedFeature", "PostFeature", "ComposeFeature"]),
 
         .testTarget(name: "CoreTests", dependencies: ["Core"]),
         .testTarget(name: "NetworkingTests", dependencies: ["Networking"]),
@@ -40,6 +41,7 @@ let package = Package(
         .testTarget(name: "AuthFeatureTests", dependencies: ["AuthFeature"]),
         .testTarget(name: "FeedUITests", dependencies: ["FeedUI", "DesignSystem", "Stores"]),
         .testTarget(name: "StoresTests", dependencies: ["Stores"]),
+        .testTarget(name: "SearchFeatureTests", dependencies: ["SearchFeature", "Stores"]),
         .testTarget(name: "PostFeatureTests", dependencies: ["PostFeature", "Stores"]),
         .testTarget(name: "ComposeFeatureTests", dependencies: ["ComposeFeature"]),
     ]

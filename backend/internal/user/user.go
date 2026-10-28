@@ -103,6 +103,36 @@ func (s *Store) GetByUsername(ctx context.Context, username string) (User, error
 		`SELECT `+Columns+` FROM users WHERE username = $1 AND deleted_at IS NULL`, username))
 }
 
+// Search finds people by username or display name (trigram indexes): an
+// exact username first, then closer matches, then the more active.
+func (s *Store) Search(ctx context.Context, query string, limit int) ([]User, error) {
+	query = strings.TrimSpace(query)
+	if utf8.RuneCountInString(query) < 2 {
+		return []User{}, nil
+	}
+	rows, err := s.db.Query(ctx, `SELECT `+Columns+` FROM users
+		WHERE deleted_at IS NULL AND (username::text ILIKE $1 OR display_name ILIKE $1)
+		ORDER BY username = $2::citext DESC,
+		         greatest(similarity(username::text, $2), similarity(coalesce(display_name, ''), $2)) DESC,
+		         post_karma + comment_karma DESC, id
+		LIMIT $3`, "%"+likeEscaper.Replace(query)+"%", query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []User{}
+	for rows.Next() {
+		u, err := Scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // UsernameAvailable powers the live check in the onboarding text field.
 // The error is the reason a name cannot be used (validation or taken).
 func (s *Store) UsernameAvailable(ctx context.Context, name string) error {

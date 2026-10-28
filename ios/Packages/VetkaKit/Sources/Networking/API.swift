@@ -128,6 +128,30 @@ public enum API {
         Endpoint(subscribed ? .put : .delete, "/v1/communities/\(slug)/subscription", auth: .required)
     }
 
+    // MARK: Search
+
+    /// People by username or display name; one page.
+    public static func searchUsers(_ query: String) -> Endpoint<Page<User>> {
+        Endpoint(.get, "/v1/search/users", query: [URLQueryItem(name: "q", value: query)])
+    }
+
+    /// Posts by title, closest first; one page.
+    public static func searchPosts(_ query: String) -> Endpoint<Page<Post>> {
+        Endpoint(.get, "/v1/search/posts", query: [URLQueryItem(name: "q", value: query)])
+    }
+
+    /// "Популярные запросы": what people searched this week, topped up with
+    /// the biggest communities' names.
+    public static func popularQueries() -> Endpoint<Page<String>> {
+        Endpoint(.get, "/v1/search/popular")
+    }
+
+    /// A search the user meant (Return, or a result opened), for the
+    /// popular queries. Signed in only: anonymous searches are not counted.
+    public static func recordSearch(_ query: String) -> Endpoint<NoContent> {
+        Endpoint(.post, "/v1/search/queries", body: ["query": query], auth: .required)
+    }
+
     // MARK: Posts, comments, votes
 
     private struct NewPost: Encodable, Sendable {

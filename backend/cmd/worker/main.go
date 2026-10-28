@@ -1,5 +1,5 @@
-// Command worker runs background jobs: for now, folding vote deltas into
-// counters, hot rank and karma once a second.
+// Command worker runs background jobs: folding vote deltas into counters,
+// hot rank and karma once a second, and hourly cleanup.
 package main
 
 import (
@@ -15,6 +15,7 @@ import (
 	"vetka/internal/config"
 	"vetka/internal/platform/logging"
 	"vetka/internal/platform/postgres"
+	"vetka/internal/search"
 	"vetka/internal/vote"
 )
 
@@ -22,7 +23,8 @@ const (
 	flushInterval = time.Second
 	// Big enough to drain a burst quickly, small enough to keep each
 	// transaction (and the row locks it holds on posts) short.
-	flushBatch = 5000
+	flushBatch    = 5000
+	pruneInterval = time.Hour
 )
 
 func main() {
@@ -52,8 +54,17 @@ func run() error {
 	log.Info("worker started", slog.Duration("flush_interval", flushInterval))
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
+	var pruned time.Time
 	for {
 		flushVotes(ctx, db, log)
+		if time.Since(pruned) >= pruneInterval {
+			pruned = time.Now()
+			if n, err := search.Prune(ctx, db, pruned); err != nil {
+				log.Error("prune search queries", slog.Any("err", err))
+			} else if n > 0 {
+				log.Debug("search queries pruned", slog.Int64("count", n))
+			}
+		}
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():

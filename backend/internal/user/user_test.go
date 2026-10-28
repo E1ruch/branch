@@ -129,3 +129,30 @@ func TestDeleteAccount(t *testing.T) {
 		t.Errorf("second delete: %v", err)
 	}
 }
+
+func TestSearch(t *testing.T) {
+	db := testdb.New(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	ivan := testdb.CreateUser(t, db, "ivan")
+	testdb.CreateUser(t, db, "ivanov_petr")
+	maria := testdb.CreateUser(t, db, "masha")
+	if _, err := s.Update(ctx, maria, UpdateInput{DisplayName: new("Мария Иванова")}); err != nil {
+		t.Fatal(err)
+	}
+	gone := testdb.CreateUser(t, db, "ivan_gone")
+	if err := s.Delete(ctx, gone); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Search(ctx, "Ivan", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != ivan {
+		t.Errorf("search ivan = %+v, want ivan first and no deleted account", got)
+	}
+	if got, _ := s.Search(ctx, "иванова", 10); len(got) != 1 || got[0].ID != maria {
+		t.Errorf("display name search = %+v", got)
+	}
+}

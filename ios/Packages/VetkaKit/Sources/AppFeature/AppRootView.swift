@@ -7,6 +7,7 @@ import FeedUI
 import DesignSystem
 import Networking
 import PostFeature
+import SearchFeature
 import Session
 import SwiftUI
 import UIKit
@@ -48,14 +49,24 @@ public struct AppRootView: View {
                            myName: app.session.me?.username,
                            open: { router.push($0) },
                            requestSignIn: { router.isAuthPresented = true },
-                           openSearch: { router.tabSelection.wrappedValue = .search },
+                           openSearch: {
+                               router.tabSelection.wrappedValue = .search
+                               router.searchFocusRequest += 1
+                           },
                            openActivity: { router.push(.activity) },
                            openProfile: { router.tabSelection.wrappedValue = .profile })
             }
                 .tabItem { Label("Лента", systemImage: "flame") }
                 .tag(Tab.feed)
 
-            stack(.search) { SearchPlaceholder() }
+            stack(.search) {
+                SearchScreen(service: LiveSearchService(client: app.client), communities: app.communities,
+                             posts: app.posts, storage: UserDefaultsRecentStorage(userID: app.session.me?.id),
+                             isSignedIn: app.session.state == .signedIn, focusRequest: router.searchFocusRequest,
+                             open: { router.push($0) })
+                    // "Недавние" are per account: a new account gets its own list.
+                    .id(app.session.me?.id)
+            }
                 .tabItem { Label("Поиск", systemImage: "magnifyingglass") }
                 .tag(Tab.search)
 
@@ -198,14 +209,6 @@ struct ActivityPlaceholder: View {
     }
 }
 
-/// The search tab until its own screen (posts, people, communities) is made.
-struct SearchPlaceholder: View {
-    var body: some View {
-        ContentUnavailableView("Поиск", systemImage: "magnifyingglass",
-                               description: Text("Поиск постов, людей и сообществ появится здесь."))
-            .navigationTitle("Поиск")
-    }
-}
 
 struct ProfileTabView: View {
     let session: SessionStore

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -382,5 +383,35 @@ func TestStoryPartsPublishedAtOnce(t *testing.T) {
 		if p.Part != i+1 {
 			t.Errorf("part %d numbered %d", i, p.Part)
 		}
+	}
+}
+
+func TestSearch(t *testing.T) {
+	e := newEnv(t)
+	author := testdb.CreateUser(t, e.db, "author")
+	open := e.community(t, "games", false)
+	adult := e.community(t, "adult", true)
+	hot := e.insertPost(t, open, author, "Лучшие игры года", 10, false)
+	cold := e.insertPost(t, open, author, "Игры детства", 1, false)
+	e.insertPost(t, open, author, "Игры для взрослых", 5, true) // NSFW post
+	e.insertPost(t, adult, author, "Игры", 50, false)           // NSFW community
+	e.insertPost(t, open, author, "Про кино", 99, false)
+
+	got, err := e.svc.Search(e.ctx, "  игры ", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []int64
+	for _, p := range got {
+		ids = append(ids, p.ID)
+	}
+	if len(ids) != 2 || !slices.Contains(ids, hot) || !slices.Contains(ids, cold) {
+		t.Errorf("search = %v, want %d and %d (no NSFW, no unrelated)", ids, hot, cold)
+	}
+	if got, _ := e.svc.Search(e.ctx, "и", 0, 10); len(got) != 0 {
+		t.Errorf("one letter matched %d posts", len(got))
+	}
+	if got, _ := e.svc.Search(e.ctx, "%", 0, 10); len(got) != 0 {
+		t.Errorf("%% is a wildcard: matched %d posts", len(got))
 	}
 }

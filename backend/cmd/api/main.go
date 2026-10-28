@@ -22,6 +22,7 @@ import (
 	"vetka/internal/platform/postgres"
 	"vetka/internal/platform/redis"
 	"vetka/internal/post"
+	"vetka/internal/search"
 	"vetka/internal/user"
 	"vetka/internal/vote"
 )
@@ -93,6 +94,7 @@ func run() error {
 			Posts:         post.NewService(db, redis.Limiter{Client: rdb}),
 			Votes:         vote.NewService(db, redis.Limiter{Client: rdb}),
 			Comments:      comment.NewService(db, redis.Limiter{Client: rdb}),
+			Search:        search.NewService(db),
 			TelegramBot:   cfg.TelegramBotUsername,
 			TelegramToken: cfg.TelegramBotToken,
 			TelegramFake:  cfg.TelegramFakeLogin,
