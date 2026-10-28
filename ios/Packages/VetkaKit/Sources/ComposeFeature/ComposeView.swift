@@ -2,8 +2,11 @@ import Core
 import DesignSystem
 import SwiftUI
 
-/// The "+" sheet: where to post, a title, an optional text. The draft saves
-/// itself as the user types, so closing the sheet or the app loses nothing.
+/// The "+" sheet. Top to bottom: a title, the text in its own field with
+/// its length under it, media (coming soon). Where the post goes (community,
+/// story, 18+) is a row of chips riding on the keyboard, in reach while
+/// typing. The draft saves itself, so closing the sheet or the app loses
+/// nothing.
 public struct ComposeView: View {
     @State private var model: ComposeModel
     private let service: any ComposeService
@@ -13,6 +16,8 @@ public struct ComposeView: View {
     @State private var isPickingCommunity = false
     @State private var isPickingStory = false
     @State private var isConfirmingClose = false
+    /// A tap on the media tile: say it is coming instead of doing nothing.
+    @State private var mediaNudge = false
 
     public init(service: any ComposeService, storage: any DraftStorage, community: PickedCommunity? = nil,
                 continues: ContinuedPost? = nil, onPublished: @escaping (Post) -> Void) {
@@ -23,45 +28,16 @@ public struct ComposeView: View {
     }
 
     public var body: some View {
-        @Bindable var model = model
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: Spacing.s) {
-                        communityButton
-                        storyButton
-                    }
-                    .padding(.horizontal, Spacing.l)
-                    .padding(.top, Spacing.m)
-                    .padding(.bottom, Spacing.s)
-
-                    TextField("Заголовок", text: $model.draft.title, axis: .vertical)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(Color.vetkaTextPrimary)
-                        .focused($focus, equals: .title)
-                        .submitLabel(.next)
-                        .padding(.horizontal, Spacing.l)
-                        .padding(.vertical, Spacing.m)
-                        .accessibilityIdentifier("compose.title")
-                    counter(model.titleRemaining)
-
-                    Rectangle()
-                        .fill(Color(uiColor: Palette.borderSubtle))
-                        .frame(height: 1)
-                        .padding(.horizontal, Spacing.l)
-
-                    TextField("Текст поста (необязательно)", text: $model.draft.body, axis: .vertical)
-                        .font(.body)
-                        .foregroundStyle(Color.vetkaTextPrimary)
-                        .focused($focus, equals: .body)
-                        .padding(.horizontal, Spacing.l)
-                        .padding(.vertical, Spacing.m)
-                        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { focus = .body }
-                        .accessibilityIdentifier("compose.body")
-                    counter(model.bodyRemaining)
+                VStack(alignment: .leading, spacing: Spacing.l) {
+                    titleField
+                    bodyField
+                    mediaSection
                 }
+                .padding(.horizontal, Spacing.l)
+                .padding(.top, Spacing.xs)
+                .padding(.bottom, Spacing.xl)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Color.vetkaSurface)
@@ -122,59 +98,186 @@ public struct ComposeView: View {
         .onDisappear { model.saveNow() }
     }
 
-    private var communityButton: some View {
+    // MARK: Fields
+
+    private var titleField: some View {
+        @Bindable var model = model
+        return VStack(alignment: .trailing, spacing: Spacing.xxs) {
+            TextField("Заголовок", text: $model.draft.title, axis: .vertical)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(Color.vetkaTextPrimary)
+                .focused($focus, equals: .title)
+                .submitLabel(.next)
+                .padding(.vertical, Spacing.s)
+                .accessibilityIdentifier("compose.title")
+            if let remaining = model.titleRemaining {
+                Text(remaining >= 0 ? "Осталось \(remaining)" : "Лишних \(-remaining)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(remaining >= 0 ? Color.vetkaSecondaryText : Color.vetkaDanger)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.vetkaSnappy, value: model.titleRemaining == nil)
+    }
+
+    /// The text in a field of its own. It grows with the text; a tap
+    /// anywhere on it puts the cursor in. The footer shows the length now
+    /// and gets the markdown buttons later.
+    private var bodyField: some View {
+        @Bindable var model = model
+        let isFocused = focus == .body
+        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            TextField("Текст поста", text: $model.draft.body, axis: .vertical)
+                .font(.body)
+                .lineSpacing(3)
+                .foregroundStyle(Color.vetkaTextPrimary)
+                .focused($focus, equals: .body)
+                .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+                .padding(.horizontal, Spacing.m)
+                .padding(.top, Spacing.m)
+                .accessibilityIdentifier("compose.body")
+            HStack {
+                Spacer()
+                Text(bodyLength)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(model.draft.body.count > ComposeModel.maxBody ? Color.vetkaDanger : Color.vetkaSecondaryText)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel("\(model.draft.body.count) из \(ComposeModel.maxBody) символов")
+            }
+            .padding(.horizontal, Spacing.m)
+            .padding(.vertical, Spacing.s)
+        }
+        .background(shape.fill(Color.vetkaField))
+        .overlay(shape.strokeBorder(Color.vetkaBrand.opacity(isFocused ? 0.45 : 0), lineWidth: 1.5))
+        .contentShape(shape)
+        .onTapGesture { focus = .body }
+        .animation(.vetkaSnappy, value: isFocused)
+    }
+
+    private var bodyLength: String {
+        "\(model.draft.body.count.formatted()) / \(ComposeModel.maxBody.formatted())"
+    }
+
+    /// Photos and video are not there yet: the tile says so when tapped.
+    private var mediaSection: some View {
+        HStack(spacing: Spacing.m) {
+            Button {
+                Haptics.selection()
+                withAnimation(.vetka) { mediaNudge = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    withAnimation(.vetka) { mediaNudge = false }
+                }
+            } label: {
+                VStack(spacing: Spacing.xs) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 22, weight: .medium))
+                    Text("Фото")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(Color(uiColor: Palette.chipActiveText))
+                .frame(width: 72, height: 72)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.vetkaBrandLight))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.vetkaBrand.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+                .scaleEffect(mediaNudge ? 0.96 : 1)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Добавить фото")
+            .accessibilityHint("Скоро")
+
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text("Фото и видео")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.vetkaTextPrimary)
+                Text(mediaNudge ? "Уже делаем — появится в следующих версиях" : "Скоро можно будет прикреплять")
+                    .font(.footnote)
+                    .foregroundStyle(Color.vetkaSecondaryText)
+                    .contentTransition(.opacity)
+            }
+            .accessibilityHidden(true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: Where the post goes
+
+    /// Rides on the keyboard: the error, if any, then the chips.
+    private var bottomBar: some View {
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            if let error = model.error {
+                Label(error, systemImage: "exclamationmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Color.vetkaDanger)
+                    .padding(.horizontal, Spacing.l)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.s) {
+                    communityChip
+                    storyChip
+                    nsfwChip
+                }
+                .padding(.horizontal, Spacing.l)
+            }
+        }
+        .padding(.vertical, Spacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .top) {
+            Color.vetkaSurface
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color(uiColor: Palette.border)).frame(height: 0.5)
+                }
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .animation(.vetka, value: model.error)
+        .animation(.vetkaSnappy, value: model.draft.community)
+        .animation(.vetkaSnappy, value: model.draft.continues)
+        .animation(.vetkaSnappy, value: model.isNSFW)
+    }
+
+    /// Green until chosen: publishing waits for it.
+    private var communityChip: some View {
         Button {
             focus = nil
             isPickingCommunity = true
         } label: {
-            HStack(spacing: Spacing.s) {
-                if let community = model.draft.community {
-                    AvatarView(name: community.title, size: 26)
+            if let community = model.draft.community {
+                ComposeChip(style: .plain) {
+                    AvatarView(name: community.title, size: 22)
                     Text(community.title)
-                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.vetkaTextPrimary)
                         .lineLimit(1)
-                } else {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Выберите сообщество")
-                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: 160, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                    chevron
                 }
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.vetkaSecondaryText)
+            } else {
+                ComposeChip(style: .accent) {
+                    Image(systemName: "square.grid.2x2")
+                    Text("Сообщество")
+                    chevron
+                }
             }
-            .foregroundStyle(Color(uiColor: Palette.chipActiveText))
-            .padding(.leading, model.draft.community == nil ? Spacing.m : Spacing.xs)
-            .padding(.trailing, Spacing.m)
-            .padding(.vertical, Spacing.xs + 1)
-            .frame(minHeight: 36)
-            .background(Capsule().fill(Color(uiColor: model.draft.community == nil
-                    ? Palette.chipActiveBackground : Palette.chipInactiveBackground)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ChipPressStyle())
         .accessibilityLabel(model.draft.community.map { "Сообщество: \($0.title)" } ?? "Выберите сообщество")
         .accessibilityIdentifier("compose.community")
     }
 
-    /// "Часть 3 · «Ремонт Нивы»" with a cross, or an offer to continue one
-    /// of the user's stories.
     @ViewBuilder
-    private var storyButton: some View {
+    private var storyChip: some View {
         if let continues = model.draft.continues {
-            HStack(spacing: Spacing.s) {
+            ComposeChip(style: .accent) {
                 Button {
                     focus = nil
                     isPickingStory = true
                 } label: {
-                    Label {
-                        Text("Часть \(continues.nextPart) · «\(continues.title)»")
-                            .lineLimit(1)
-                    } icon: {
+                    HStack(spacing: Spacing.xs + 2) {
                         Image(systemName: "book.pages")
+                        Text("Часть \(continues.nextPart)")
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(uiColor: Palette.chipActiveText))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Продолжение истории «\(continues.title)», часть \(continues.nextPart)")
@@ -183,41 +286,50 @@ public struct ComposeView: View {
                     Haptics.selection()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Color.vetkaSecondaryText)
+                        .foregroundStyle(Color(uiColor: Palette.chipActiveText).opacity(0.6))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Не продолжать историю")
             }
-            .padding(.horizontal, Spacing.m)
-            .frame(minHeight: 36)
-            .background(Capsule().fill(Color(uiColor: Palette.chipActiveBackground)))
         } else {
             Button {
                 focus = nil
                 isPickingStory = true
             } label: {
-                Label("Продолжение истории", systemImage: "book.pages")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(uiColor: Palette.chipInactiveText))
-                    .padding(.horizontal, Spacing.m)
-                    .frame(minHeight: 36)
-                    .background(Capsule().fill(Color(uiColor: Palette.chipInactiveBackground)))
+                ComposeChip(style: .plain) {
+                    Image(systemName: "book.pages")
+                    Text("История")
+                }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ChipPressStyle())
             .accessibilityHint("Сделать пост следующей частью вашей истории")
             .accessibilityIdentifier("compose.story")
         }
     }
 
-    @ViewBuilder
-    private func counter(_ remaining: Int?) -> some View {
-        if let remaining {
-            Text(remaining >= 0 ? "Осталось \(remaining)" : "Лишних \(-remaining)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(remaining >= 0 ? Color.vetkaSecondaryText : Color.vetkaDanger)
-                .padding(.horizontal, Spacing.l)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+    /// Locked on in an 18+ community.
+    private var nsfwChip: some View {
+        Button {
+            model.draft.isNSFW.toggle()
+            Haptics.selection()
+        } label: {
+            ComposeChip(style: model.isNSFW ? .danger : .plain) {
+                if model.nsfwIsForced {
+                    Image(systemName: "lock.fill")
+                }
+                Text("18+")
+            }
         }
+        .buttonStyle(ChipPressStyle())
+        .disabled(model.nsfwIsForced)
+        .accessibilityLabel(model.nsfwIsForced ? "Только для взрослых: всё сообщество 18+" : "Только для взрослых")
+        .accessibilityValue(model.isNSFW ? "Включено" : "Выключено")
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.down")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(Color.vetkaSecondaryText)
     }
 
     private var publishButton: some View {
@@ -242,51 +354,6 @@ public struct ComposeView: View {
         .accessibilityLabel("Опубликовать")
         .accessibilityHint(model.missing ?? "")
         .accessibilityIdentifier("compose.publish")
-    }
-
-    private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: Spacing.s) {
-            if let error = model.error {
-                Label(error, systemImage: "exclamationmark.circle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Color.vetkaDanger)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            HStack {
-                Button {
-                    model.draft.isNSFW.toggle()
-                    Haptics.selection()
-                } label: {
-                    Label("18+", systemImage: model.isNSFW ? "checkmark.circle.fill" : "circle")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color(uiColor: model.isNSFW ? Palette.destructive : Palette.chipInactiveText))
-                        .padding(.horizontal, Spacing.m)
-                        .padding(.vertical, 7)
-                        .background(Capsule().fill(Color(uiColor: Palette.chipInactiveBackground)))
-                }
-                .buttonStyle(.plain)
-                .disabled(model.nsfwIsForced)
-                .accessibilityLabel("Только для взрослых")
-                .accessibilityValue(model.isNSFW ? "Включено" : "Выключено")
-                if model.nsfwIsForced {
-                    Text("Всё сообщество 18+")
-                        .font(.caption)
-                        .foregroundStyle(Color.vetkaSecondaryText)
-                }
-                Spacer()
-            }
-        }
-        .padding(.horizontal, Spacing.l)
-        .padding(.vertical, Spacing.s)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .top) {
-            Color.vetkaSurface
-                .overlay(alignment: .top) {
-                    Rectangle().fill(Color(uiColor: Palette.border)).frame(height: 0.5)
-                }
-                .ignoresSafeArea(edges: .bottom)
-        }
-        .animation(.vetka, value: model.error)
     }
 
     private func close() {
@@ -321,5 +388,49 @@ private struct PublishButtonStyle: ButtonStyle {
                 .scaleEffect(configuration.isPressed ? 0.96 : 1)
                 .animation(.vetkaSnappy, value: configuration.isPressed)
         }
+    }
+}
+
+/// A capsule in the bottom row: one height, one font, three looks.
+private struct ComposeChip<Content: View>: View {
+    enum Style { case plain, accent, danger }
+
+    let style: Style
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: Spacing.xs + 2) { content }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, Spacing.m)
+            .frame(height: 34)
+            .background(Capsule().fill(background))
+            .contentShape(Capsule())
+    }
+
+    private var foreground: Color {
+        switch style {
+        case .plain: Color(uiColor: Palette.chipInactiveText)
+        case .accent: Color(uiColor: Palette.chipActiveText)
+        case .danger: Color(uiColor: Palette.voteDown)
+        }
+    }
+
+    private var background: Color {
+        switch style {
+        case .plain: Color(uiColor: Palette.chipInactiveBackground)
+        case .accent: Color(uiColor: Palette.chipActiveBackground)
+        case .danger: Color(uiColor: Palette.voteDownSoft)
+        }
+    }
+}
+
+/// A chip gives a little when pressed.
+private struct ChipPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(.vetkaSnappy, value: configuration.isPressed)
     }
 }
