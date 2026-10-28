@@ -121,6 +121,13 @@ public enum API {
         Endpoint(.get, "/v1/communities/\(slug)")
     }
 
+    /// Sets the subscription to a state (PUT subscribes, DELETE leaves), so
+    /// a retry never flips it back. Returns the community with the fresh
+    /// subscriber count.
+    public static func setSubscription(_ slug: String, subscribed: Bool) -> Endpoint<Community> {
+        Endpoint(subscribed ? .put : .delete, "/v1/communities/\(slug)/subscription", auth: .required)
+    }
+
     // MARK: Posts, comments, votes
 
     private struct NewPost: Encodable, Sendable {

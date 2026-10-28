@@ -26,8 +26,11 @@ final class branchUITests: XCTestCase {
         screenshot(app, "communities")
 
         kotiki.tap()
-        XCTAssertTrue(app.navigationBars["kotiki"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.collectionViews["feed.community.new"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["community.subscribe"].waitForExistence(timeout: 8))
         screenshot(app, "community")
+        app.buttons["Правила"].tap()
+        XCTAssertTrue(app.scrollViews["community.rules"].waitForExistence(timeout: 4))
 
         // The interactive back-swipe from the left edge must keep working.
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
@@ -57,7 +60,7 @@ final class branchUITests: XCTestCase {
         if open.waitForExistence(timeout: 8) {
             open.tap()
         }
-        XCTAssertTrue(app.navigationBars["Пост #42"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.collectionViews["thread"].waitForExistence(timeout: 8))
         screenshot(app, "deep link")
     }
 

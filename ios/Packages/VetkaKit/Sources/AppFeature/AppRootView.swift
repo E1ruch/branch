@@ -3,6 +3,7 @@ import CommunitiesFeature
 import ComposeFeature
 import Core
 import FeedFeature
+import FeedUI
 import DesignSystem
 import Networking
 import PostFeature
@@ -32,6 +33,7 @@ public struct AppRootView: View {
 
     private func openPublishedPost() {
         router.composeContinuing = nil
+        router.composeCommunity = nil
         guard let id = publishedPostID else { return }
         publishedPostID = nil
         router.push(.post(id: id))
@@ -52,7 +54,10 @@ public struct AppRootView: View {
                 .tabItem { Label("Лента", systemImage: "flame") }
                 .tag(Tab.feed)
 
-            stack(.search) { CommunitiesView(client: app.client) }
+            stack(.search) {
+                CommunitiesView(client: app.client, store: app.communities, isSignedIn: app.session.state == .signedIn,
+                                requestSignIn: { router.isAuthPresented = true })
+            }
                 .tabItem { Label("Поиск", systemImage: "magnifyingglass") }
                 .tag(Tab.search)
 
@@ -81,11 +86,14 @@ public struct AppRootView: View {
         }
         .sheet(isPresented: $router.isComposePresented, onDismiss: openPublishedPost) {
             let continuing = router.composeContinuing
+            let community = continuing.map {
+                PickedCommunity(slug: $0.community.slug, title: $0.community.title, isNSFW: false)
+            } ?? router.composeCommunity.map {
+                PickedCommunity(slug: $0.slug, title: $0.title, isNSFW: $0.isNsfw)
+            }
             ComposeView(service: LiveComposeService(client: app.client, username: app.session.me?.username),
                         storage: UserDefaultsDraftStorage(userID: app.session.me?.id),
-                        community: continuing.map {
-                            PickedCommunity(slug: $0.community.slug, title: $0.community.title, isNSFW: false)
-                        },
+                        community: community,
                         continues: continuing.map(ContinuedPost.init)) { post in
                 app.posts.merge([post])
                 publishedPostID = post.id
@@ -100,6 +108,10 @@ public struct AppRootView: View {
         .task {
             Haptics.prepare()
             await app.session.start()
+        }
+        .onChange(of: app.session.state == .signedIn) {
+            // Subscriptions belong to the account: screens reload them.
+            app.communities.sessionChanged()
         }
     }
 
@@ -137,8 +149,12 @@ struct RouteView: View {
         case let .post(id):
             thread(.post(id: id))
         case let .community(slug):
-            Placeholder(title: slug, systemImage: "square.grid.2x2",
-                        note: "Лента сообщества — вместе с лентой на UICollectionView.")
+            CommunityScreen(slug: slug, communities: app.communities, posts: app.posts,
+                            feed: LiveFeedService(client: app.client),
+                            isSignedIn: app.session.state == .signedIn,
+                            open: { router.push($0) },
+                            requestSignIn: { router.isAuthPresented = true },
+                            compose: { router.compose(in: $0) })
         case let .user(username):
             Placeholder(title: username, systemImage: "person",
                         note: "Публичный профиль — в модуле «Профиль».")

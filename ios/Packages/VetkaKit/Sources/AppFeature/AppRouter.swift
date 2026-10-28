@@ -21,6 +21,8 @@ final class AppRouter {
     var isComposePresented = false
     /// The post whose story the composer continues, when opened for that.
     var composeContinuing: Post?
+    /// The community the composer opens in, when opened from its page.
+    var composeCommunity: Community?
     /// Set by AppEnvironment: posting needs an account.
     var isSignedIn: () -> Bool = { false }
 
@@ -53,10 +55,11 @@ final class AppRouter {
     /// TabView select the "create" item, even for the instant before the
     /// binding refuses it, re-attaches the feed's stack and leaves screens
     /// pushed later with no safe area (lists under the bars).
-    func compose(continuing post: Post? = nil) {
+    func compose(continuing post: Post? = nil, in community: Community? = nil) {
         Haptics.tap()
         if isSignedIn() {
             composeContinuing = post
+            composeCommunity = community
             isComposePresented = true
         } else {
             isAuthPresented = true

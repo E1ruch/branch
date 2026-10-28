@@ -27,10 +27,17 @@ type communityDTO struct {
 	CreatedAt        time.Time `json:"created_at"`
 	IsSubscribed     bool      `json:"is_subscribed"`
 	ViewerRole       *string   `json:"viewer_role"`
+	// Present on a single community only; lists leave it out.
+	Rules *[]ruleDTO `json:"rules,omitempty"`
+}
+
+type ruleDTO struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 func toCommunityDTO(c community.Community) communityDTO {
-	return communityDTO{
+	dto := communityDTO{
 		ID:               c.ID,
 		Slug:             c.Slug,
 		Title:            c.Title,
@@ -41,6 +48,14 @@ func toCommunityDTO(c community.Community) communityDTO {
 		IsSubscribed:     c.IsSubscribed,
 		ViewerRole:       c.ViewerRole,
 	}
+	if c.Rules != nil {
+		rules := make([]ruleDTO, len(c.Rules))
+		for i, r := range c.Rules {
+			rules[i] = ruleDTO(r)
+		}
+		dto.Rules = &rules
+	}
+	return dto
 }
 
 func toCommunityDTOs(cs []community.Community) []communityDTO {
@@ -123,15 +138,25 @@ func (h *communityHandlers) update(w http.ResponseWriter, r *http.Request) {
 		Title       *string `json:"title"`
 		Description *string `json:"description"`
 		IsNSFW      *bool   `json:"is_nsfw"`
+		// The whole list, in order; [] removes every rule.
+		Rules *[]ruleDTO `json:"rules"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	h.respond(w, r, http.StatusOK)(h.svc.Update(r.Context(), chi.URLParam(r, "slug"), viewer(r), community.UpdateInput{
+	in := community.UpdateInput{
 		Title:       req.Title,
 		Description: req.Description,
 		IsNSFW:      req.IsNSFW,
-	}))
+	}
+	if req.Rules != nil {
+		rules := make([]community.Rule, len(*req.Rules))
+		for i, r := range *req.Rules {
+			rules[i] = community.Rule(r)
+		}
+		in.Rules = &rules
+	}
+	h.respond(w, r, http.StatusOK)(h.svc.Update(r.Context(), chi.URLParam(r, "slug"), viewer(r), in))
 }
 
 func (h *communityHandlers) subscribe(w http.ResponseWriter, r *http.Request) {

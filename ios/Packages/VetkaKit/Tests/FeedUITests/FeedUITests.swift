@@ -5,7 +5,7 @@ import Networking
 import Stores
 import Testing
 import UIKit
-@testable import FeedFeature
+@testable import FeedUI
 
 func makePost(_ id: Int64, title: String = "Заголовок", body: String = "", truncated: Bool = false,
               score: Int = 0, myVote: Int = 0, age: TimeInterval = 3600, part: Int? = nil) throws -> Post {
@@ -112,7 +112,7 @@ actor FakeFeedService: FeedService {
     func setPage(_ cursor: String?, _ page: Page<Post>) { pages[cursor] = page }
     func failVotes(with error: APIError?) { voteError = error }
 
-    func page(_ kind: FeedKind, cursor: String?) async throws(APIError) -> Page<Post> {
+    func page(_ source: FeedSource, cursor: String?) async throws(APIError) -> Page<Post> {
         guard let page = pages[cursor] else { throw .transport(.notConnectedToInternet) }
         return page
     }
@@ -127,12 +127,12 @@ actor FakeFeedService: FeedService {
 
 @MainActor
 @Suite(.serialized) struct FeedModelTests {
-    func model(_ service: FakeFeedService, kind: FeedKind = .hot, signedIn: Bool = true,
+    func model(_ service: FakeFeedService, source: FeedSource = .all(.hot), signedIn: Bool = true,
                onSignIn: @escaping () -> Void = {}) async -> FeedModel {
         let store = PostStore(voteDebounce: .milliseconds(50)) { id, value throws(APIError) in
             try await service.vote(id, value: value)
         }
-        let m = FeedModel(kind: kind, service: service, store: store, isSignedIn: signedIn, requestSignIn: onSignIn)
+        let m = FeedModel(source: source, service: service, store: store, isSignedIn: signedIn, requestSignIn: onSignIn)
         await m.setWidth(390, category: .large)
         return m
     }
@@ -199,7 +199,7 @@ actor FakeFeedService: FeedService {
     }
 
     @Test func subscriptionsNeedAnAccount() async {
-        let m = await model(FakeFeedService(), kind: .subscriptions, signedIn: false)
+        let m = await model(FakeFeedService(), source: .subscriptions, signedIn: false)
         await m.load()
         #expect(m.phase == .signInRequired && m.ids.isEmpty)
     }

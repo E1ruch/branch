@@ -1,5 +1,6 @@
 import Core
 import DesignSystem
+import FeedUI
 import Stores
 import SwiftUI
 

@@ -5,24 +5,32 @@ import Networking
 import Stores
 import UIKit
 
-public enum FeedKind: String, CaseIterable, Hashable, Sendable {
-    case hot, new, subscriptions
-
-    public var title: String {
-        switch self {
-        case .hot: "Горячее"
-        case .new: "Новое"
-        case .subscriptions: "Подписки"
-        }
-    }
+/// Where a feed's pages come from.
+public enum FeedSource: Hashable, Sendable {
+    /// Everything: the feed tab's Горячее and Новое.
+    case all(API.FeedSort)
+    case subscriptions
+    case community(slug: String, sort: API.FeedSort)
+    /// A user's posts, newest first.
+    case user(username: String)
 
     var requiresSignIn: Bool { self == .subscriptions }
+
+    /// For UI tests: feed.hot, feed.community.new…
+    var accessibilityName: String {
+        switch self {
+        case let .all(sort): sort.rawValue
+        case .subscriptions: "subscriptions"
+        case let .community(_, sort): "community.\(sort.rawValue)"
+        case .user: "user"
+        }
+    }
 }
 
 /// What the feed needs from the server. A protocol so the paging logic is
 /// tested without a network. Votes go through the shared PostStore.
 public protocol FeedService: Sendable {
-    func page(_ kind: FeedKind, cursor: String?) async throws(APIError) -> Page<Post>
+    func page(_ source: FeedSource, cursor: String?) async throws(APIError) -> Page<Post>
 }
 
 public struct LiveFeedService: FeedService {
@@ -32,11 +40,12 @@ public struct LiveFeedService: FeedService {
         self.client = client
     }
 
-    public func page(_ kind: FeedKind, cursor: String?) async throws(APIError) -> Page<Post> {
-        switch kind {
-        case .hot: try await client.send(API.feedAll(sort: .hot, cursor: cursor))
-        case .new: try await client.send(API.feedAll(sort: .new, cursor: cursor))
+    public func page(_ source: FeedSource, cursor: String?) async throws(APIError) -> Page<Post> {
+        switch source {
+        case let .all(sort): try await client.send(API.feedAll(sort: sort, cursor: cursor))
         case .subscriptions: try await client.send(API.feedSubscriptions(sort: .hot, cursor: cursor))
+        case let .community(slug, sort): try await client.send(API.communityFeed(slug, sort: sort, cursor: cursor))
+        case let .user(username): try await client.send(API.userPosts(username, cursor: cursor))
         }
     }
 }
@@ -44,7 +53,7 @@ public struct LiveFeedService: FeedService {
 /// One feed's state. Main-actor bound like the view controller that shows
 /// it; the heavy parts (network, decoding, text measuring) run elsewhere.
 @MainActor
-final class FeedModel {
+public final class FeedModel {
     enum Phase: Equatable {
         case loading, loaded, failed(APIError), signInRequired
     }
@@ -58,7 +67,7 @@ final class FeedModel {
         case phase
     }
 
-    let kind: FeedKind
+    let source: FeedSource
     private(set) var ids: [Int64] = []
     /// The posts themselves live in the store, shared with the post screen.
     var posts: [Int64: Post] { store.posts }
@@ -67,7 +76,7 @@ final class FeedModel {
     private(set) var fonts: FeedFonts
     var onChange: ((Change) -> Void)?
 
-    var isSignedIn: Bool
+    public private(set) var isSignedIn: Bool
     private let requestSignIn: () -> Void
     private let service: any FeedService
     private let store: PostStore
@@ -82,9 +91,9 @@ final class FeedModel {
     /// reaches posts that are already there.
     static let prefetchDistance = 10
 
-    init(kind: FeedKind, service: any FeedService, store: PostStore, isSignedIn: Bool,
-         requestSignIn: @escaping () -> Void, category: UIContentSizeCategory = .large) {
-        self.kind = kind
+    public init(source: FeedSource, service: any FeedService, store: PostStore, isSignedIn: Bool,
+                requestSignIn: @escaping () -> Void, category: UIContentSizeCategory = .large) {
+        self.source = source
         self.service = service
         self.store = store
         self.isSignedIn = isSignedIn
@@ -133,7 +142,7 @@ final class FeedModel {
     /// The first page or a pull-to-refresh. Old posts stay on screen until
     /// the new page arrives.
     func load() async {
-        guard !kind.requiresSignIn || isSignedIn else {
+        guard !source.requiresSignIn || isSignedIn else {
             reset(phase: .signInRequired)
             return
         }
@@ -144,7 +153,7 @@ final class FeedModel {
         loadGeneration += 1
         let generation = loadGeneration
         do {
-            let page = try await service.page(kind, cursor: nil)
+            let page = try await service.page(source, cursor: nil)
             let measured = await Self.measure(page.items, width: width, fonts: fonts)
             guard generation == loadGeneration else { return }
 
@@ -173,7 +182,7 @@ final class FeedModel {
         isLoadingMore = true
         defer { isLoadingMore = false }
         let generation = loadGeneration
-        guard let page = try? await service.page(kind, cursor: cursor) else { return }
+        guard let page = try? await service.page(source, cursor: cursor) else { return }
         let measured = await Self.measure(page.items, width: width, fonts: fonts)
         guard generation == loadGeneration else { return } // refreshed meanwhile
 
@@ -188,7 +197,7 @@ final class FeedModel {
     }
 
     /// Signing in or out changes my_vote everywhere and opens Подписки.
-    func sessionChanged(signedIn: Bool) async {
+    public func sessionChanged(signedIn: Bool) async {
         guard signedIn != isSignedIn else { return }
         isSignedIn = signedIn
         reset(phase: .loading)

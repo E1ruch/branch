@@ -159,6 +159,53 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
+func TestRules(t *testing.T) {
+	e := newEnv(t)
+	owner := testdb.CreateUser(t, e.db, "owner")
+	e.create(t, owner, "news", "Новости")
+
+	c, err := e.svc.Get(e.ctx, "news", 0)
+	if err != nil || c.Rules == nil || len(c.Rules) != 0 {
+		t.Fatalf("new community: rules = %#v, %v; want empty, not nil", c.Rules, err)
+	}
+
+	rules := []Rule{{Title: "  Без спама ", Body: " Реклама — бан "}, {Title: "Источники"}}
+	c, err = e.svc.Update(e.ctx, "news", owner, UpdateInput{Rules: &rules})
+	if err != nil || len(c.Rules) != 2 || c.Rules[0] != (Rule{"Без спама", "Реклама — бан"}) || c.Rules[1].Title != "Источники" {
+		t.Fatalf("set rules: %#v, %v", c.Rules, err)
+	}
+
+	// Other fields leave the rules alone; lists do not carry them.
+	if c, _ = e.svc.Update(e.ctx, "news", owner, UpdateInput{Title: new("Новости дня")}); len(c.Rules) != 2 {
+		t.Errorf("title update dropped rules: %#v", c.Rules)
+	}
+	if list, _ := e.svc.Popular(e.ctx, 0, nil, 10); len(list) != 1 || list[0].Rules != nil {
+		t.Errorf("popular carries rules: %#v", list)
+	}
+
+	var verr *ValidationError
+	for name, bad := range map[string][]Rule{
+		"too many":    make([]Rule, 16),
+		"empty title": {{Title: "  "}},
+		"long title":  {{Title: strings.Repeat("я", 101)}},
+		"long body":   {{Title: "x", Body: strings.Repeat("я", 501)}},
+	} {
+		for i := range bad {
+			if name == "too many" {
+				bad[i].Title = "x"
+			}
+		}
+		if _, err := e.svc.Update(e.ctx, "news", owner, UpdateInput{Rules: &bad}); !errors.As(err, &verr) || verr.Field != "rules" {
+			t.Errorf("%s: err = %v, want a rules ValidationError", name, err)
+		}
+	}
+
+	none := []Rule{}
+	if c, err = e.svc.Update(e.ctx, "news", owner, UpdateInput{Rules: &none}); err != nil || c.Rules == nil || len(c.Rules) != 0 {
+		t.Errorf("clear rules: %#v, %v", c.Rules, err)
+	}
+}
+
 func TestPopularPaginatesWithoutGapsOrDuplicates(t *testing.T) {
 	e := newEnv(t)
 	owner := testdb.CreateUser(t, e.db, "owner")

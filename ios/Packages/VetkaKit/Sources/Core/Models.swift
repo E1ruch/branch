@@ -37,6 +37,34 @@ public struct Community: Codable, Sendable, Hashable, Identifiable {
     public let createdAt: Date
     public let isSubscribed: Bool
     public let viewerRole: String?
+    /// Only a single community (GET /v1/communities/{slug}) carries its
+    /// rules; in lists this is nil, meaning "not loaded", not "none".
+    public let rules: [CommunityRule]?
+
+    public init(id: Int64, slug: String, title: String, description: String, isNsfw: Bool, subscribersCount: Int,
+                createdAt: Date, isSubscribed: Bool, viewerRole: String?, rules: [CommunityRule]?) {
+        self.id = id
+        self.slug = slug
+        self.title = title
+        self.description = description
+        self.isNsfw = isNsfw
+        self.subscribersCount = subscribersCount
+        self.createdAt = createdAt
+        self.isSubscribed = isSubscribed
+        self.viewerRole = viewerRole
+        self.rules = rules
+    }
+}
+
+public struct CommunityRule: Codable, Sendable, Hashable {
+    public let title: String
+    /// May be empty: some rules are only a title.
+    public let body: String
+
+    public init(title: String, body: String) {
+        self.title = title
+        self.body = body
+    }
 }
 
 public struct CommunityRef: Codable, Sendable, Hashable {
@@ -245,6 +273,25 @@ extension Post {
             return newer.with(contentOf: self)
         }
         return newer
+    }
+}
+
+extension Community {
+    /// A copy with the viewer's subscription changed: optimistic UI shows
+    /// it before the server confirms.
+    public func with(isSubscribed: Bool, subscribersCount: Int) -> Community {
+        Community(id: id, slug: slug, title: title, description: description, isNsfw: isNsfw,
+                  subscribersCount: subscribersCount, createdAt: createdAt, isSubscribed: isSubscribed,
+                  viewerRole: viewerRole, rules: rules)
+    }
+
+    /// Merges a newer copy from the server: a list entry (no rules) keeps
+    /// the rules a community page already loaded.
+    public func merged(with newer: Community) -> Community {
+        guard newer.rules == nil, let rules else { return newer }
+        return Community(id: newer.id, slug: newer.slug, title: newer.title, description: newer.description,
+                         isNsfw: newer.isNsfw, subscribersCount: newer.subscribersCount, createdAt: newer.createdAt,
+                         isSubscribed: newer.isSubscribed, viewerRole: newer.viewerRole, rules: rules)
     }
 }
 

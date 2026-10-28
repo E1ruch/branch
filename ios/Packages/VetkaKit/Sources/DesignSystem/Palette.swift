@@ -231,11 +231,17 @@ public struct LogoView: View {
 /// The pill switcher under the feed header: Горячее · Новое · Подписки.
 /// The selected pill slides between options instead of jumping.
 public struct PillPicker<Value: Hashable>: View {
-    private let options: [(value: Value, title: String)]
+    private let options: [(value: Value, title: String, count: String?)]
     @Binding private var selection: Value
     @Namespace private var namespace
 
     public init(_ options: [(value: Value, title: String)], selection: Binding<Value>) {
+        self.options = options.map { ($0.value, $0.title, nil) }
+        _selection = selection
+    }
+
+    /// With a counter after each title ("Подписки 12"); nil leaves it out.
+    public init(_ options: [(value: Value, title: String, count: String?)], selection: Binding<Value>) {
         self.options = options
         _selection = selection
     }
@@ -249,7 +255,12 @@ public struct PillPicker<Value: Hashable>: View {
                     Haptics.selection()
                     withAnimation(.vetkaSnappy) { selection = option.value }
                 } label: {
-                    Text(option.title)
+                    HStack(spacing: 6) {
+                        Text(option.title)
+                        if let count = option.count {
+                            CountBadge(count, selected: selected)
+                        }
+                    }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color(uiColor: selected ? Palette.chipActiveText : Palette.chipInactiveText))
                         .padding(.horizontal, Spacing.l)
@@ -265,6 +276,7 @@ public struct PillPicker<Value: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityLabel(option.count.map { "\(option.title), \($0)" } ?? option.title)
             }
         }
         .padding(Spacing.xs)
@@ -272,18 +284,54 @@ public struct PillPicker<Value: Hashable>: View {
     }
 }
 
+/// The counter after a pill's title: a circle (a capsule for "25+") that
+/// stands out from the title. Green on the selected pill, grey otherwise;
+/// both pairs are the button pairs checked for contrast.
+private struct CountBadge: View {
+    let text: String
+    let selected: Bool
+
+    init(_ text: String, selected: Bool) {
+        self.text = text
+        self.selected = selected
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.bold))
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .foregroundStyle(Color(uiColor: selected ? Palette.buttonPrimaryText : Palette.surface))
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(Capsule().fill(Color(uiColor: selected ? Palette.buttonPrimary : Palette.chipInactiveText)))
+    }
+}
+
 /// A small capsule button: filled green for an action ("Подписаться"),
-/// soft for the done state ("Вы подписаны").
+/// soft green for a done state, grey for undoing one ("Отписаться").
 public struct PillButtonStyle: ButtonStyle {
-    let filled: Bool
+    public enum Tone: Sendable {
+        case filled, soft, muted
+
+        var colors: (text: UIColor, background: UIColor) {
+            switch self {
+            case .filled: (Palette.buttonPrimaryText, Palette.buttonPrimary)
+            case .soft: (Palette.chipActiveText, Palette.chipActiveBackground)
+            case .muted: (Palette.chipInactiveText, Palette.chipInactiveBackground)
+            }
+        }
+    }
+
+    let tone: Tone
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color(uiColor: filled ? Palette.buttonPrimaryText : Palette.chipActiveText))
+            .foregroundStyle(Color(uiColor: tone.colors.text))
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(Capsule().fill(Color(uiColor: filled ? Palette.buttonPrimary : Palette.chipActiveBackground)))
+            .background(Capsule().fill(Color(uiColor: tone.colors.background)))
             .opacity(configuration.isPressed ? 0.7 : 1)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(.vetkaSnappy, value: configuration.isPressed)
@@ -292,7 +340,11 @@ public struct PillButtonStyle: ButtonStyle {
 
 public extension ButtonStyle where Self == PillButtonStyle {
     static func pill(filled: Bool = true) -> PillButtonStyle {
-        PillButtonStyle(filled: filled)
+        PillButtonStyle(tone: filled ? .filled : .soft)
+    }
+
+    static func pill(_ tone: PillButtonStyle.Tone) -> PillButtonStyle {
+        PillButtonStyle(tone: tone)
     }
 }
 

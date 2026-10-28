@@ -14,6 +14,8 @@ public final class AppEnvironment {
     public let session: SessionStore
     /// Every post on screen, shared by feeds and post screens.
     public let posts: PostStore
+    /// Every community on screen, shared by the search tab and community pages.
+    public let communities: CommunityStore
     public let features = Features()
     let router = AppRouter()
 
@@ -31,8 +33,11 @@ public final class AppEnvironment {
         self.tokens = tokens
         self.session = session
         posts = PostStore(client: client)
+        communities = CommunityStore(client: client)
         router.isSignedIn = { [weak session] in session?.state == .signedIn }
         posts.requestSignIn = { [weak router] in router?.isAuthPresented = true }
+        communities.requestSignIn = { [weak router] in router?.isAuthPresented = true }
+        communities.isSignedIn = { [weak session] in session?.state == .signedIn }
     }
 
     public static func live() -> AppEnvironment {

@@ -65,6 +65,25 @@ func TestCommunitiesAPI(t *testing.T) {
 	if status, body := c.call("PATCH", "/v1/communities/news", reader, map[string]any{"title": "Захват"}); status != http.StatusForbidden {
 		t.Errorf("non-moderator update: %d %v", status, body)
 	}
+	status, body = c.call("PATCH", "/v1/communities/news", owner,
+		map[string]any{"rules": []map[string]any{{"title": "Без спама", "body": "Реклама — бан"}}})
+	if rules, _ := body["rules"].([]any); status != http.StatusOK || len(rules) != 1 {
+		t.Errorf("set rules: %d %v", status, body)
+	}
+	status, body = c.call("GET", "/v1/communities/news", "", nil)
+	if rules, _ := body["rules"].([]any); status != http.StatusOK || len(rules) != 1 ||
+		rules[0].(map[string]any)["title"] != "Без спама" {
+		t.Errorf("get rules: %d %v", status, body)
+	}
+	status, body = c.call("PATCH", "/v1/communities/news", owner, map[string]any{"rules": []map[string]any{{"title": ""}}})
+	if status != http.StatusUnprocessableEntity || body["error"].(map[string]any)["field"] != "rules" {
+		t.Errorf("invalid rule: %d %v", status, body)
+	}
+	status, body = c.call("GET", "/v1/communities", "", nil)
+	if _, has := body["items"].([]any)[0].(map[string]any)["rules"]; status != http.StatusOK || has {
+		t.Errorf("list carries rules: %d %v", status, body)
+	}
+
 	if status, _ := c.call("GET", "/v1/communities/nope", "", nil); status != http.StatusNotFound {
 		t.Errorf("unknown community: %d", status)
 	}

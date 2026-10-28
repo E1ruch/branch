@@ -3,6 +3,7 @@ package community
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -42,6 +43,17 @@ type Community struct {
 	// Relative to the viewer; false/nil for anonymous requests.
 	IsSubscribed bool
 	ViewerRole   *string // "owner" or "moderator"
+
+	// Only a single community carries its rules (Get and what returns it);
+	// lists leave them nil to stay small.
+	Rules []Rule
+}
+
+// Rule is one line of a community's rules: a short title and an optional
+// explanation, in the order moderators put them.
+type Rule struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 const (
@@ -49,6 +61,10 @@ const (
 	maxCreatedPerDay = 3
 	maxTitle         = 64
 	maxDescription   = 1000
+	// The rules column's CHECK allows the same number.
+	maxRules     = 15
+	maxRuleTitle = 100
+	maxRuleBody  = 500
 )
 
 // Same rule as the communities.slug CHECK constraint.
@@ -74,17 +90,24 @@ func NewService(db *pgxpool.Pool) *Service {
 // Every read joins the viewer's subscription and role in the same query, so a
 // list of 25 communities costs one round trip. Viewer 0 is anonymous and
 // matches no rows (user IDs start at 1).
-const selectWithViewer = `
+const (
+	viewerColumns = `
 	SELECT c.id, c.slug, c.title, c.description, c.is_nsfw, c.subscribers_count, c.created_at,
-	       m.user_id IS NOT NULL, mod.role::text
+	       m.user_id IS NOT NULL, mod.role::text`
+	viewerJoins = `
 	FROM communities c
 	LEFT JOIN community_members m      ON m.community_id = c.id AND m.user_id = $1
 	LEFT JOIN community_moderators mod ON mod.community_id = c.id AND mod.user_id = $1`
+	selectWithViewer = viewerColumns + viewerJoins
+	// One community: the list columns plus its rules (scan with &c.Rules).
+	selectDetail = viewerColumns + `, c.rules` + viewerJoins
+)
 
-func scan(row pgx.Row) (Community, error) {
+// scan reads the list columns; extra receives the columns after them.
+func scan(row pgx.Row, extra ...any) (Community, error) {
 	var c Community
-	err := row.Scan(&c.ID, &c.Slug, &c.Title, &c.Description, &c.IsNSFW, &c.SubscribersCount, &c.CreatedAt,
-		&c.IsSubscribed, &c.ViewerRole)
+	err := row.Scan(append([]any{&c.ID, &c.Slug, &c.Title, &c.Description, &c.IsNSFW, &c.SubscribersCount, &c.CreatedAt,
+		&c.IsSubscribed, &c.ViewerRole}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Community{}, ErrNotFound
 	}
@@ -108,7 +131,10 @@ func collect(rows pgx.Rows, err error) ([]Community, error) {
 }
 
 func (s *Service) Get(ctx context.Context, slug string, viewer int64) (Community, error) {
-	return scan(s.db.QueryRow(ctx, selectWithViewer+` WHERE c.slug = $2`, viewer, slug))
+	var rules []Rule
+	c, err := scan(s.db.QueryRow(ctx, selectDetail+` WHERE c.slug = $2`, viewer, slug), &rules)
+	c.Rules = rules
+	return c, err
 }
 
 type CreateInput struct {
@@ -175,11 +201,12 @@ func (s *Service) Create(ctx context.Context, userID int64, in CreateInput) (Com
 	return s.Get(ctx, in.Slug, userID)
 }
 
-// UpdateInput changes only the non-nil fields.
+// UpdateInput changes only the non-nil fields. Rules replace the whole list.
 type UpdateInput struct {
 	Title       *string
 	Description *string
 	IsNSFW      *bool
+	Rules       *[]Rule
 }
 
 func (s *Service) Update(ctx context.Context, slug string, userID int64, in UpdateInput) (Community, error) {
@@ -197,15 +224,26 @@ func (s *Service) Update(ctx context.Context, slug string, userID int64, in Upda
 		}
 		in.Description = &d
 	}
+	var rules []byte // nil keeps the current rules
+	if in.Rules != nil {
+		clean, err := validateRules(*in.Rules)
+		if err != nil {
+			return Community{}, err
+		}
+		if rules, err = json.Marshal(clean); err != nil {
+			return Community{}, err
+		}
+	}
 
 	tag, err := s.db.Exec(ctx, `
 		UPDATE communities c SET
 			title       = COALESCE($3, c.title),
 			description = COALESCE($4, c.description),
-			is_nsfw     = COALESCE($5, c.is_nsfw)
+			is_nsfw     = COALESCE($5, c.is_nsfw),
+			rules       = COALESCE($6::jsonb, c.rules)
 		WHERE c.slug = $1
 		  AND EXISTS (SELECT 1 FROM community_moderators WHERE community_id = c.id AND user_id = $2)`,
-		slug, userID, in.Title, in.Description, in.IsNSFW)
+		slug, userID, in.Title, in.Description, in.IsNSFW, rules)
 	if err != nil {
 		return Community{}, err
 	}
@@ -299,6 +337,26 @@ func validateSlug(slug string) error {
 		return &ValidationError{"slug", "this name is reserved"}
 	}
 	return nil
+}
+
+// validateRules trims every rule and checks the limits. The result is never
+// nil, so an emptied list is stored as [] rather than null.
+func validateRules(rules []Rule) ([]Rule, error) {
+	if len(rules) > maxRules {
+		return nil, &ValidationError{"rules", fmt.Sprintf("at most %d rules", maxRules)}
+	}
+	clean := make([]Rule, len(rules))
+	for i, r := range rules {
+		r.Title, r.Body = strings.TrimSpace(r.Title), strings.TrimSpace(r.Body)
+		if n := utf8.RuneCountInString(r.Title); n < 1 || n > maxRuleTitle {
+			return nil, &ValidationError{"rules", fmt.Sprintf("rule %d: title length must be 1-%d characters", i+1, maxRuleTitle)}
+		}
+		if utf8.RuneCountInString(r.Body) > maxRuleBody {
+			return nil, &ValidationError{"rules", fmt.Sprintf("rule %d: text must be at most %d characters", i+1, maxRuleBody)}
+		}
+		clean[i] = r
+	}
+	return clean, nil
 }
 
 func validateText(field, s string, min, max int) error {

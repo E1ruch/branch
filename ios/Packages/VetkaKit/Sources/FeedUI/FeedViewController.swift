@@ -6,8 +6,11 @@ import UIKit
 /// One feed in a UICollectionView. Flow layout with precomputed heights:
 /// the layout asks for sizes, the model already has them, nothing is
 /// measured while scrolling.
-final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLayout {
-    let model: FeedModel
+///
+/// Everything it shows starts below its safe area, so a header laid over
+/// it (HeaderPagerViewController) only has to raise the safe area's top.
+public final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLayout, ScrollPage {
+    public let model: FeedModel
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
     private var collectionView: UICollectionView!
@@ -15,7 +18,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
     private let skeleton = SkeletonFeedView()
     private var didStartLoading = false
 
-    init(model: FeedModel, open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
+    public init(model: FeedModel, open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
         self.model = model
         self.open = open
         self.requestSignIn = requestSignIn
@@ -24,7 +27,12 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func viewDidLoad() {
+    public var scrollView: UIScrollView {
+        loadViewIfNeeded()
+        return collectionView
+    }
+
+    public override func viewDidLoad() {
         super.viewDidLoad()
         let layout = UICollectionViewFlowLayout()
         layout.minimumLineSpacing = 0
@@ -34,7 +42,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         collectionView.alwaysBounceVertical = true
         collectionView.delegate = self
         collectionView.register(PostCell.self, forCellWithReuseIdentifier: PostCell.reuseID)
-        collectionView.accessibilityIdentifier = "feed.\(model.kind.rawValue)"
+        collectionView.accessibilityIdentifier = "feed.\(model.source.accessibilityName)"
         view.addSubview(collectionView)
 
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] cv, indexPath, id in
@@ -55,8 +63,6 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         }, for: .valueChanged)
         collectionView.refreshControl = refresh
 
-        skeleton.frame = view.bounds
-        skeleton.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(skeleton)
 
         model.onChange = { [weak self] change in self?.apply(change) }
@@ -66,7 +72,12 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         updateStates()
     }
 
-    override func viewIsAppearing(_ animated: Bool) {
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        skeleton.frame = view.bounds.inset(by: UIEdgeInsets(top: view.safeAreaInsets.top, left: 0, bottom: 0, right: 0))
+    }
+
+    public override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         Haptics.prepare()
         Task {
@@ -78,7 +89,7 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         }
     }
 
-    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+    public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         coordinator.animate(alongsideTransition: nil) { [weak self] _ in
             Task { await self?.updateWidth() }
@@ -89,12 +100,12 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         await model.setWidth(view.bounds.width, category: traitCollection.preferredContentSizeCategory)
     }
 
-    func scrollToTop() {
+    public func scrollToTop() {
         collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: true)
     }
 
     /// Only the visible feed answers the status bar tap.
-    func setVisible(_ visible: Bool) {
+    public func setVisible(_ visible: Bool) {
         view.isHidden = !visible
         collectionView?.scrollsToTop = visible
     }
@@ -155,11 +166,19 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
             config = c
         case .loaded where model.ids.isEmpty:
             var c = UIContentUnavailableConfiguration.empty()
-            c.image = UIImage(systemName: model.kind == .subscriptions ? "square.grid.2x2" : "leaf")
-            c.text = model.kind == .subscriptions ? "Пока пусто" : "Постов ещё нет"
-            c.secondaryText = model.kind == .subscriptions
-                ? "Подпишитесь на сообщества — их посты появятся здесь."
-                : "Станьте первым, кто что-нибудь опубликует."
+            switch model.source {
+            case .subscriptions:
+                c.image = UIImage(systemName: "square.grid.2x2")
+                c.text = "Пока пусто"
+                c.secondaryText = "Подпишитесь на сообщества — их посты появятся здесь."
+            case .user:
+                c.image = UIImage(systemName: "text.page")
+                c.text = "Постов пока нет"
+            default:
+                c.image = UIImage(systemName: "leaf")
+                c.text = "Постов ещё нет"
+                c.secondaryText = "Станьте первым, кто что-нибудь опубликует."
+            }
             config = c
         default:
             config = nil
@@ -169,21 +188,21 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
 
     // MARK: UICollectionViewDelegateFlowLayout
 
-    func collectionView(_ collectionView: UICollectionView, layout: UICollectionViewLayout,
+    public func collectionView(_ collectionView: UICollectionView, layout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
         let id = dataSource.itemIdentifier(for: indexPath)
         let height = id.flatMap { model.layouts[$0]?.height } ?? 120
         return CGSize(width: collectionView.bounds.width, height: height)
     }
 
-    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell,
+    public func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell,
                         forItemAt indexPath: IndexPath) {
         Task { await model.loadMoreIfNeeded(displaying: indexPath.item) }
     }
 
     /// Long press: the same actions as the "⋯" menu plus the votes, with
     /// the system's lifted preview and haptic.
-    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
+    public func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
                         point: CGPoint) -> UIContextMenuConfiguration? {
         guard let indexPath = indexPaths.first, let id = dataSource.itemIdentifier(for: indexPath),
               let post = model.posts[id] else { return nil }
@@ -229,71 +248,10 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
         }
     }
 
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+    public func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         if let id = dataSource.itemIdentifier(for: indexPath) {
             open(.post(id: id))
         }
-    }
-}
-
-/// Holds one FeedViewController per kind and shows the selected one, so
-/// switching is instant and each feed keeps its scroll position.
-public final class FeedContainerViewController: UIViewController {
-    private let service: any FeedService
-    private let store: PostStore
-    private let open: (Route) -> Void
-    private let requestSignIn: () -> Void
-    private var isSignedIn: Bool
-    private var feeds: [FeedKind: FeedViewController] = [:]
-    private var current: FeedKind?
-
-    public init(service: any FeedService, store: PostStore, isSignedIn: Bool,
-                open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
-        self.service = service
-        self.store = store
-        self.isSignedIn = isSignedIn
-        self.open = open
-        self.requestSignIn = requestSignIn
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    public func show(_ kind: FeedKind) {
-        guard kind != current else { return }
-        let feed = feeds[kind] ?? makeFeed(kind)
-        for (other, vc) in feeds where other != kind {
-            vc.setVisible(false)
-        }
-        feed.setVisible(true)
-        current = kind
-    }
-
-    /// Re-taps and status bar taps.
-    public func scrollToTop() {
-        if let current { feeds[current]?.scrollToTop() }
-    }
-
-    public func setSignedIn(_ signedIn: Bool) {
-        guard signedIn != isSignedIn else { return }
-        isSignedIn = signedIn
-        store.sessionChanged()
-        for feed in feeds.values {
-            Task { await feed.model.sessionChanged(signedIn: signedIn) }
-        }
-    }
-
-    private func makeFeed(_ kind: FeedKind) -> FeedViewController {
-        let model = FeedModel(kind: kind, service: service, store: store, isSignedIn: isSignedIn, requestSignIn: requestSignIn,
-                              category: traitCollection.preferredContentSizeCategory)
-        let feed = FeedViewController(model: model, open: open, requestSignIn: requestSignIn)
-        addChild(feed)
-        feed.view.frame = view.bounds
-        feed.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(feed.view)
-        feed.didMove(toParent: self)
-        feeds[kind] = feed
-        return feed
     }
 }
