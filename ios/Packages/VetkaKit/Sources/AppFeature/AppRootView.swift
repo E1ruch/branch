@@ -73,13 +73,11 @@ public struct AppRootView: View {
         }
         .tint(.vetkaBrand)
         .overlay(alignment: .bottom) {
-            if !router.isTabBarHidden {
-                Button { router.compose() } label: { Color.clear }
-                    .frame(width: 76, height: 49)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Создать пост")
-                    .accessibilityIdentifier("tab.compose")
-            }
+            Button { router.compose() } label: { Color.clear }
+                .frame(width: 76, height: 49)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Создать пост")
+                .accessibilityIdentifier("tab.compose")
         }
         .sheet(isPresented: $router.isComposePresented, onDismiss: openPublishedPost) {
             let continuing = router.composeContinuing

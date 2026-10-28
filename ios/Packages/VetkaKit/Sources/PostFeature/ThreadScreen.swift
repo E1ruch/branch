@@ -44,8 +44,9 @@ public struct ThreadScreen: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
-            // The comment field takes the tab bar's place, like a chat.
-            .toolbar(.hidden, for: .tabBar)
+            // The tab bar stays and the comment field sits above it. Hidden
+            // with .toolbar(.hidden, for: .tabBar), SwiftUI brings it back
+            // only ~0.6 s after the back animation ends: a visible jump.
     }
 }
 

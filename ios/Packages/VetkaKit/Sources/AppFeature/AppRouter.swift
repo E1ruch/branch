@@ -63,15 +63,6 @@ final class AppRouter {
         }
     }
 
-    /// The post and branch screens hide the tab bar for their comment
-    /// field; the "+" laid over it must go too.
-    var isTabBarHidden: Bool {
-        switch paths[selectedTab]?.last {
-        case .post, .commentThread: true
-        default: false
-        }
-    }
-
     func push(_ route: Route) {
         paths[selectedTab, default: []].append(route)
     }
