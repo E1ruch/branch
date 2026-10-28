@@ -49,6 +49,12 @@ public struct AuthorRef: Codable, Sendable, Hashable {
     public let id: Int64
     public let username: String
     public let displayName: String?
+
+    public init(id: Int64, username: String, displayName: String?) {
+        self.id = id
+        self.username = username
+        self.displayName = displayName
+    }
 }
 
 public struct Post: Codable, Sendable, Hashable, Identifiable {
@@ -83,6 +89,22 @@ public struct Comment: Codable, Sendable, Hashable, Identifiable {
     public let replyCount: Int
     public let createdAt: Date
     public let editedAt: Date?
+
+    public init(id: Int64, postId: Int64, parentId: Int64?, depth: Int, body: String?, isDeleted: Bool,
+                author: AuthorRef?, score: Int, myVote: Int, replyCount: Int, createdAt: Date, editedAt: Date?) {
+        self.id = id
+        self.postId = postId
+        self.parentId = parentId
+        self.depth = depth
+        self.body = body
+        self.isDeleted = isDeleted
+        self.author = author
+        self.score = score
+        self.myVote = myVote
+        self.replyCount = replyCount
+        self.createdAt = createdAt
+        self.editedAt = editedAt
+    }
 }
 
 /// One row of a comment thread, in display order.
@@ -178,5 +200,43 @@ extension Post {
         Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
              editedAt: editedAt, community: community, author: author)
+    }
+
+    /// A copy with another comment count: a comment was just posted.
+    public func with(commentCount: Int) -> Post {
+        Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
+             score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
+             editedAt: editedAt, community: community, author: author)
+    }
+
+    /// The same post with the body and edit time of `other`: a feed's
+    /// preview must not replace the full text a post screen loaded.
+    func with(contentOf other: Post) -> Post {
+        Post(id: id, title: title, body: other.body, bodyTruncated: other.bodyTruncated, isNsfw: isNsfw,
+             score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
+             editedAt: other.editedAt, community: community, author: author)
+    }
+
+    /// Merges a newer copy from the server, keeping a full body over a
+    /// preview of the same edit.
+    public func merged(with newer: Post) -> Post {
+        if newer.bodyTruncated && !bodyTruncated && newer.editedAt == editedAt {
+            return newer.with(contentOf: self)
+        }
+        return newer
+    }
+}
+
+extension Comment {
+    public func with(myVote: Int, score: Int) -> Comment {
+        Comment(id: id, postId: postId, parentId: parentId, depth: depth, body: body, isDeleted: isDeleted,
+                author: author, score: score, myVote: myVote, replyCount: replyCount,
+                createdAt: createdAt, editedAt: editedAt)
+    }
+
+    public func with(replyCount: Int) -> Comment {
+        Comment(id: id, postId: postId, parentId: parentId, depth: depth, body: body, isDeleted: isDeleted,
+                author: author, score: score, myVote: myVote, replyCount: replyCount,
+                createdAt: createdAt, editedAt: editedAt)
     }
 }

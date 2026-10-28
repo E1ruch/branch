@@ -2,6 +2,7 @@ import Core
 import DesignSystem
 import Foundation
 import Networking
+import Stores
 import UIKit
 
 public enum FeedKind: String, CaseIterable, Hashable, Sendable {
@@ -18,11 +19,10 @@ public enum FeedKind: String, CaseIterable, Hashable, Sendable {
     var requiresSignIn: Bool { self == .subscriptions }
 }
 
-/// What the feed needs from the server. A protocol so the paging and
-/// optimistic-vote logic is tested without a network.
+/// What the feed needs from the server. A protocol so the paging logic is
+/// tested without a network. Votes go through the shared PostStore.
 public protocol FeedService: Sendable {
     func page(_ kind: FeedKind, cursor: String?) async throws(APIError) -> Page<Post>
-    func vote(post id: Int64, value: Int) async throws(APIError) -> VoteResult
 }
 
 public struct LiveFeedService: FeedService {
@@ -38,10 +38,6 @@ public struct LiveFeedService: FeedService {
         case .new: try await client.send(API.feedAll(sort: .new, cursor: cursor))
         case .subscriptions: try await client.send(API.feedSubscriptions(sort: .hot, cursor: cursor))
         }
-    }
-
-    public func vote(post id: Int64, value: Int) async throws(APIError) -> VoteResult {
-        try await client.send(API.votePost(id, value: value))
     }
 }
 
@@ -64,7 +60,8 @@ final class FeedModel {
 
     let kind: FeedKind
     private(set) var ids: [Int64] = []
-    private(set) var posts: [Int64: Post] = [:]
+    /// The posts themselves live in the store, shared with the post screen.
+    var posts: [Int64: Post] { store.posts }
     private(set) var layouts: [Int64: PostLayout] = [:]
     private(set) var phase: Phase = .loading
     private(set) var fonts: FeedFonts
@@ -73,31 +70,33 @@ final class FeedModel {
     var isSignedIn: Bool
     private let requestSignIn: () -> Void
     private let service: any FeedService
-    private let voteDebounce: Duration
+    private let store: PostStore
+    private var idSet: Set<Int64> = []
 
     private var width: CGFloat = 0
     private var nextCursor: String?
     private var isLoadingMore = false
     private var loadGeneration = 0
 
-    /// Optimistic votes: the server state to roll back to, and a counter per
-    /// post so only the latest tap's response is applied.
-    private var confirmed: [Int64: (myVote: Int, score: Int)] = [:]
-    private var voteGeneration: [Int64: Int] = [:]
-
     /// Load the next page this many posts before the end, so scrolling
     /// reaches posts that are already there.
     static let prefetchDistance = 10
 
-    init(kind: FeedKind, service: any FeedService, isSignedIn: Bool,
-         requestSignIn: @escaping () -> Void, voteDebounce: Duration = .milliseconds(300),
-         category: UIContentSizeCategory = .large) {
+    init(kind: FeedKind, service: any FeedService, store: PostStore, isSignedIn: Bool,
+         requestSignIn: @escaping () -> Void, category: UIContentSizeCategory = .large) {
         self.kind = kind
         self.service = service
+        self.store = store
         self.isSignedIn = isSignedIn
         self.requestSignIn = requestSignIn
-        self.voteDebounce = voteDebounce
         self.fonts = FeedFonts(category: category)
+        store.observe(self) { [weak self] changed in
+            guard let self else { return }
+            let mine = changed.filter(idSet.contains)
+            if !mine.isEmpty {
+                onChange?(.posts(mine))
+            }
+        }
     }
 
     // MARK: Layout
@@ -150,14 +149,11 @@ final class FeedModel {
             guard generation == loadGeneration else { return }
 
             ids = []
-            var seen = Set<Int64>()
-            var fresh: [Int64: Post] = [:]
-            for post in page.items where seen.insert(post.id).inserted {
+            idSet = []
+            for post in page.items where idSet.insert(post.id).inserted {
                 ids.append(post.id)
-                // A vote still on its way keeps its optimistic state.
-                fresh[post.id] = voteGeneration[post.id] != nil ? (posts[post.id] ?? post) : post
             }
-            posts = fresh
+            store.merge(page.items)
             layouts = measured
             nextCursor = page.nextCursor
             phase = .loaded
@@ -182,9 +178,9 @@ final class FeedModel {
         guard generation == loadGeneration else { return } // refreshed meanwhile
 
         // Ranks move while people scroll: a post can come back on a later page.
-        for post in page.items where posts[post.id] == nil {
+        store.merge(page.items)
+        for post in page.items where idSet.insert(post.id).inserted {
             ids.append(post.id)
-            posts[post.id] = post
             layouts[post.id] = measured[post.id]
         }
         nextCursor = page.nextCursor
@@ -195,8 +191,6 @@ final class FeedModel {
     func sessionChanged(signedIn: Bool) async {
         guard signedIn != isSignedIn else { return }
         isSignedIn = signedIn
-        confirmed = [:]
-        voteGeneration = [:]
         reset(phase: .loading)
         await load()
     }
@@ -204,7 +198,7 @@ final class FeedModel {
     private func reset(phase: Phase) {
         loadGeneration += 1
         ids = []
-        posts = [:]
+        idSet = []
         layouts = [:]
         nextCursor = nil
         self.phase = phase
@@ -213,54 +207,12 @@ final class FeedModel {
 
     // MARK: Votes
 
-    /// A tap on ▲ (direction 1) or ▼ (-1). Tapping the active arrow again
-    /// clears the vote. The screen updates now; the request goes out once the
-    /// taps settle, carrying only the final state.
+    /// A tap on ▲ (direction 1) or ▼ (-1): optimistic, through the store.
     func tapVote(_ id: Int64, direction: Int) {
         guard isSignedIn else {
             requestSignIn()
             return
         }
-        guard let post = posts[id] else { return }
-        let value = post.myVote == direction ? 0 : direction
-
-        if voteGeneration[id] == nil {
-            confirmed[id] = (post.myVote, post.score)
-        }
-        let generation = (voteGeneration[id] ?? 0) + 1
-        voteGeneration[id] = generation
-        posts[id] = post.with(myVote: value, score: post.score - post.myVote + value)
-        Haptics.tap()
-        onChange?(.posts([id]))
-
-        Task { [weak self, voteDebounce] in
-            try? await Task.sleep(for: voteDebounce)
-            await self?.send(id, value: value, generation: generation)
-        }
-    }
-
-    private func send(_ id: Int64, value: Int, generation: Int) async {
-        guard voteGeneration[id] == generation else { return } // a newer tap took over
-        do {
-            let result = try await service.vote(post: id, value: value)
-            guard voteGeneration[id] == generation, let post = posts[id] else { return }
-            // The server's score includes everyone's votes, ours too.
-            posts[id] = post.with(myVote: result.myVote, score: result.score)
-            voteGeneration[id] = nil
-            confirmed[id] = nil
-            onChange?(.posts([id]))
-        } catch {
-            guard voteGeneration[id] == generation else { return }
-            if let (myVote, score) = confirmed[id], let post = posts[id] {
-                posts[id] = post.with(myVote: myVote, score: score)
-            }
-            voteGeneration[id] = nil
-            confirmed[id] = nil
-            Haptics.error()
-            onChange?(.posts([id]))
-            if error == .unauthorized {
-                requestSignIn()
-            }
-        }
+        store.vote(id, direction: direction)
     }
 }

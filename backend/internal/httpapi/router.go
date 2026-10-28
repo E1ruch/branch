@@ -111,6 +111,7 @@ func NewRouter(d Deps) http.Handler {
 			})
 
 			r.Route("/comments/{id}", func(r chi.Router) {
+				r.Get("/", commentH.get)
 				r.Get("/replies", commentH.replies)
 				r.With(requireAuth).Patch("/", commentH.edit)
 				r.With(requireAuth).Delete("/", commentH.delete)

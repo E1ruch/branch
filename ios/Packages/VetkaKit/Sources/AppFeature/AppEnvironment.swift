@@ -2,6 +2,7 @@ import Core
 import Foundation
 import Networking
 import Session
+import Stores
 
 /// The composition root: every long-lived dependency is built here, once,
 /// and handed down explicitly. No singletons, so previews and tests can build
@@ -11,6 +12,8 @@ public final class AppEnvironment {
     public let client: APIClient
     public let tokens: TokenStore
     public let session: SessionStore
+    /// Every post on screen, shared by feeds and post screens.
+    public let posts: PostStore
     public let features = Features()
     let router = AppRouter()
 
@@ -27,7 +30,9 @@ public final class AppEnvironment {
         self.client = client
         self.tokens = tokens
         self.session = session
+        posts = PostStore(client: client)
         router.isSignedIn = { [weak session] in session?.state == .signedIn }
+        posts.requestSignIn = { [weak router] in router?.isAuthPresented = true }
     }
 
     public static func live() -> AppEnvironment {

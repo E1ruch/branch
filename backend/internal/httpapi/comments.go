@@ -128,6 +128,16 @@ func (h *commentHandlers) thread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toThreadDTO(p))
 }
 
+// get: GET /v1/comments/{id} — the head of a "продолжить ветку" screen.
+func (h *commentHandlers) get(w http.ResponseWriter, r *http.Request) {
+	id, ok := commentID(w, r)
+	if !ok {
+		return
+	}
+	c, err := h.svc.Get(r.Context(), id, viewer(r))
+	h.respond(w, r, http.StatusOK, c, err)
+}
+
 // replies: GET /v1/comments/{id}/replies — both "more" and "continue".
 func (h *commentHandlers) replies(w http.ResponseWriter, r *http.Request) {
 	id, ok := commentID(w, r)

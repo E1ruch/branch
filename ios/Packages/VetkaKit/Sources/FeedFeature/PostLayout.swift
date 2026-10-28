@@ -1,4 +1,5 @@
 import Core
+import DesignSystem
 import Foundation
 import UIKit
 
@@ -122,13 +123,6 @@ struct PostLayout: Sendable, Equatable {
     }
 
     static func relativeAge(from date: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(date)))
-        switch seconds {
-        case ..<60: return "только что"
-        case ..<3600: return "\(seconds / 60) мин назад"
-        case ..<86400: return "\(seconds / 3600) ч назад"
-        case ..<(86400 * 30): return "\(seconds / 86400) д назад"
-        default: return date.formatted(.dateTime.day().month(.abbreviated))
-        }
+        RelativeAge.text(from: date, now: now)
     }
 }

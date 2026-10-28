@@ -2,6 +2,7 @@ import Core
 @testable import DesignSystem
 import Foundation
 import Networking
+import Stores
 import Testing
 import UIKit
 @testable import FeedFeature
@@ -110,7 +111,7 @@ actor FakeFeedService: FeedService {
         return page
     }
 
-    func vote(post id: Int64, value: Int) async throws(APIError) -> VoteResult {
+    func vote(_ id: Int64, value: Int) async throws(APIError) -> VoteResult {
         votes.append((id, value))
         if let voteError { throw voteError }
         let json = #"{"my_vote": \#(value), "score": \#(serverScore)}"#
@@ -122,8 +123,10 @@ actor FakeFeedService: FeedService {
 @Suite(.serialized) struct FeedModelTests {
     func model(_ service: FakeFeedService, kind: FeedKind = .hot, signedIn: Bool = true,
                onSignIn: @escaping () -> Void = {}) async -> FeedModel {
-        let m = FeedModel(kind: kind, service: service, isSignedIn: signedIn, requestSignIn: onSignIn,
-                          voteDebounce: .milliseconds(50))
+        let store = PostStore(voteDebounce: .milliseconds(50)) { id, value throws(APIError) in
+            try await service.vote(id, value: value)
+        }
+        let m = FeedModel(kind: kind, service: service, store: store, isSignedIn: signedIn, requestSignIn: onSignIn)
         await m.setWidth(390, category: .large)
         return m
     }

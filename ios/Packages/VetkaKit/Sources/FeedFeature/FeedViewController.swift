@@ -1,5 +1,6 @@
 import Core
 import DesignSystem
+import Stores
 import UIKit
 
 /// One feed in a UICollectionView. Flow layout with precomputed heights:
@@ -240,15 +241,17 @@ final class FeedViewController: UIViewController, UICollectionViewDelegateFlowLa
 /// switching is instant and each feed keeps its scroll position.
 public final class FeedContainerViewController: UIViewController {
     private let service: any FeedService
+    private let store: PostStore
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
     private var isSignedIn: Bool
     private var feeds: [FeedKind: FeedViewController] = [:]
     private var current: FeedKind?
 
-    public init(service: any FeedService, isSignedIn: Bool,
+    public init(service: any FeedService, store: PostStore, isSignedIn: Bool,
                 open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
         self.service = service
+        self.store = store
         self.isSignedIn = isSignedIn
         self.open = open
         self.requestSignIn = requestSignIn
@@ -275,13 +278,14 @@ public final class FeedContainerViewController: UIViewController {
     public func setSignedIn(_ signedIn: Bool) {
         guard signedIn != isSignedIn else { return }
         isSignedIn = signedIn
+        store.sessionChanged()
         for feed in feeds.values {
             Task { await feed.model.sessionChanged(signedIn: signedIn) }
         }
     }
 
     private func makeFeed(_ kind: FeedKind) -> FeedViewController {
-        let model = FeedModel(kind: kind, service: service, isSignedIn: isSignedIn, requestSignIn: requestSignIn,
+        let model = FeedModel(kind: kind, service: service, store: store, isSignedIn: isSignedIn, requestSignIn: requestSignIn,
                               category: traitCollection.preferredContentSizeCategory)
         let feed = FeedViewController(model: model, open: open, requestSignIn: requestSignIn)
         addChild(feed)

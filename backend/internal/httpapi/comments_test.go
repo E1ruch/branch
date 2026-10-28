@@ -73,6 +73,12 @@ func TestCommentsAPI(t *testing.T) {
 	}
 
 	commentPath := fmt.Sprintf("/v1/comments/%d", topID)
+	if status, body := c.call("GET", commentPath, reader, nil); status != http.StatusOK || body["body"] != "Первый" || body["reply_count"] != 10.0 {
+		t.Errorf("get: %d %v", status, body)
+	}
+	if status, _ := c.call("GET", "/v1/comments/999999", "", nil); status != http.StatusNotFound {
+		t.Errorf("unknown comment: %d", status)
+	}
 	if status, body := c.call("PUT", commentPath+"/vote", reader, map[string]any{"value": 1}); status != http.StatusOK || body["score"] != 1.0 {
 		t.Errorf("vote: %d %v", status, body)
 	}

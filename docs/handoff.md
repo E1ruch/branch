@@ -13,8 +13,8 @@
   `cmd/api` (HTTP), `cmd/worker` (сбрасывает голоса в счётчики), `cmd/migrate`.
 - `ios/` — `branch.xcodeproj` (тонкий app-таргет `VetkaApp.swift`) + локальный
   SPM-пакет `ios/Packages/VetkaKit` (Swift 6, strict concurrency, iOS 17):
-  `Core`, `Networking`, `Session`, `DesignSystem`, `AuthFeature`,
-  `CommunitiesFeature`, `FeedFeature`, `AppFeature`.
+  `Core`, `Networking`, `Session`, `DesignSystem`, `Stores`, `AuthFeature`,
+  `CommunitiesFeature`, `FeedFeature`, `PostFeature`, `AppFeature`.
 - `infra/docker-compose.yml` — Postgres и Redis.
 
 Приоритеты (не обсуждаются): плавность уровня Telegram (ничего тяжёлого в main,
@@ -67,7 +67,7 @@ make test          # TEST_DATABASE_URL уже задан в Makefile; кажды
   (или попросить пользователя сделать `sudo xcode-select -s …`; без этого не
   работает и панель симулятора Claude).
 - Тесты пакета: `cd ios/Packages/VetkaKit && xcodebuild test -scheme VetkaKit
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` (42 теста, Swift Testing).
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` (56 тестов, Swift Testing).
 - Приложение и UI-тесты: `cd ios && xcodebuild test -project branch.xcodeproj
   -scheme branch -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
   -parallel-testing-enabled NO -only-testing:branchUITests/branchUITests/…`.
@@ -75,8 +75,15 @@ make test          # TEST_DATABASE_URL уже задан в Makefile; кажды
 - Тапать в симуляторе через `simctl` нельзя — для проверки UI писать XCUITest
   или снимать `xcrun simctl io <device> screenshot`. Тёмная тема:
   `xcrun simctl ui <device> appearance dark`.
-- Телефон: в схеме Xcode `VETKA_API_URL=http://<IP Mac>:8080` (сейчас
-  `192.168.31.37`); debug-сборка запоминает адрес; нужно разрешение «Локальная сеть».
+- Телефон: в схеме Xcode `VETKA_API_URL=http://<IP Mac>:8080` (IP меняется:
+  был `.37`, на 28.10 — `192.168.31.63`, смотреть `ipconfig getifaddr en0`);
+  debug-сборка запоминает адрес; нужно разрешение «Локальная сеть».
+- Симулятор тоже запоминает адрес: если лента «не загрузилась», а API жив —
+  `SIMCTL_CHILD_VETKA_API_URL=http://localhost:8080 xcrun simctl launch booted laviosa.branch`.
+- Панель симулятора Claude работает (тапы, ввод, скриншоты), но скриншот
+  отстаёт от экрана — после действия ждать ~2 с. Кириллицу её ввод портит
+  (ввод идёт через буфер обмена в другой кодировке), а латиница на русской
+  раскладке превращается в «Пкуфе» — для текста писать XCUITest.
 
 ## Что сделано (по коммитам)
 
@@ -104,18 +111,24 @@ iOS:
   свайпы вправо/влево = за/против, контекстное меню, «⋯», поделиться.
 - Редизайн шаг 1: токены `Palette`, 5 вкладок (Лента, Поиск, «+», Активность,
   Профиль), шапка ленты с логотипом и «пилюлями», поиск сообществ.
+- Шаг 2, экран поста (`PostFeature`, `Route.post` и `Route.commentThread`):
+  пост целиком (из ленты — мгновенно по превью, потом полный текст), дерево
+  плоским списком на `UICollectionView` с линиями веток (раскладки вне main),
+  голоса за пост и комментарии, поле ввода на месте таб-бара (keyboardLayoutGuide),
+  «Ответить», оптимистичная отправка (временный отрицательный id, при ошибке
+  текст возвращается в поле), сворачивание веток тапом, контекстное меню
+  («К родительскому», копировать, автор), «Ещё N ответов» на месте, экран
+  ветки («Весь пост», «Выше»), сортировка «Лучшие/Новые».
+- `Stores`: общий `PostStore` (identity map, ленты и экран поста читают посты
+  из него) и `VoteSync` (оптимистичные голоса для постов и комментариев).
+  `VoteControl` переехал в DesignSystem. Бэкенд: `GET /v1/comments/{id}`.
 
 ## План (следующие шаги редизайна)
 
 Макет и `docs/design-system.md` — ориентир. Шаги согласованы с пользователем:
 
-2. **Экран поста** (`Route.post`, сейчас заглушка): пост целиком, голоса,
-   древовидные комментарии плоским списком по `depth` (UIKit, как лента),
-   «Ответить» из комментария, поле ввода внизу, `more`/`continue`, голоса за
-   комментарии (оптимистично), переход к родителю. Бэкенд готов:
-   `GET /v1/posts/{id}`, `/comments`, `/v1/comments/{id}/replies`, `POST …/comments`,
-   `PUT /v1/comments/{id}/vote`. При переходе позиция ленты сохраняется (стек).
-   Голоса поста в ленте и на экране поста стоит связать общим `PostStore`.
+2. ~~Экран поста~~ — сделан (см. выше). Не проверено на iPhone; правка и
+   удаление своих комментариев (бэкенд есть) — ещё нет.
 3. **Создание поста** (центральный «+», сейчас `ComposePlaceholder`): текст,
    выбор сообщества, публикация (`POST /v1/communities/{slug}/posts`).
 4. **Сообщества/страница сообщества/профиль** в новом стиле; кнопка
@@ -147,3 +160,10 @@ Apple при удалении аккаунта.
   команд с аргументами использовать функции.
 - Даты от Go: RFC 3339 с дробью и без — `JSON.decoder()` понимает оба.
 - Миграции: уже применённые не редактировать, только новые файлы.
+- В тестах `Testing` экспортирует свой `Comment` — писать `Core.Comment`.
+- `async let` с typed throws теряет тип ошибки: параллельные запросы в
+  `ThreadModel` возвращают `Result` через хелпер `result {}`.
+- `make run` из песочницы Claude работает, но надёжнее запускать API и
+  воркер во вкладках терминала пользователя.
+- Локальные тестовые данные: пользователь `thread_bot` и глубокая ветка под
+  постом 27 («Собрал первую клавиатуру») — для проверки `more`/`continue`.

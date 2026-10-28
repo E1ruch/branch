@@ -4,6 +4,7 @@ import Core
 import FeedFeature
 import DesignSystem
 import Networking
+import PostFeature
 import Session
 import SwiftUI
 import UIKit
@@ -27,6 +28,7 @@ public struct AppRootView: View {
         TabView(selection: router.tabSelection) {
             stack(.feed) {
                 FeedScreen(service: LiveFeedService(client: app.client),
+                           store: app.posts,
                            isSignedIn: app.session.state == .signedIn,
                            myName: app.session.me?.username,
                            open: { router.push($0) },
@@ -86,7 +88,7 @@ public struct AppRootView: View {
     private func stack<Root: View>(_ tab: Tab, @ViewBuilder root: () -> Root) -> some View {
         NavigationStack(path: router.path(for: tab)) {
             root()
-                .navigationDestination(for: Route.self) { RouteView(route: $0) }
+                .navigationDestination(for: Route.self) { RouteView(route: $0, app: app, router: router) }
         }
     }
 }
@@ -95,12 +97,13 @@ public struct AppRootView: View {
 /// each route shows what it will be.
 struct RouteView: View {
     let route: Route
+    let app: AppEnvironment
+    let router: AppRouter
 
     var body: some View {
         switch route {
         case let .post(id):
-            Placeholder(title: "Пост #\(id)", systemImage: "doc.text",
-                        note: "Экран поста с комментариями — в модуле «Пост».")
+            thread(.post(id: id))
         case let .community(slug):
             Placeholder(title: slug, systemImage: "square.grid.2x2",
                         note: "Лента сообщества — вместе с лентой на UICollectionView.")
@@ -108,9 +111,17 @@ struct RouteView: View {
             Placeholder(title: username, systemImage: "person",
                         note: "Публичный профиль — в модуле «Профиль».")
         case let .commentThread(id):
-            Placeholder(title: "Ветка #\(id)", systemImage: "text.bubble",
-                        note: "Ветка комментариев — в модуле «Пост».")
+            thread(.branch(commentID: id))
         }
+    }
+
+    private func thread(_ mode: ThreadMode) -> some View {
+        let me = app.session.me
+        return ThreadScreen(mode: mode, service: LivePostService(client: app.client), store: app.posts,
+                            isSignedIn: app.session.state == .signedIn,
+                            viewer: me.map { AuthorRef(id: $0.id, username: $0.username, displayName: $0.displayName) },
+                            open: { router.push($0) },
+                            requestSignIn: { router.isAuthPresented = true })
     }
 }
 

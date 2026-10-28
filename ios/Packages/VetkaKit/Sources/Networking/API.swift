@@ -130,6 +130,20 @@ public enum API {
         Endpoint(.get, "/v1/comments/\(commentID)/replies", query: page(cursor, ("sort", sort.rawValue)))
     }
 
+    public static func comment(_ id: Int64) -> Endpoint<Comment> {
+        Endpoint(.get, "/v1/comments/\(id)")
+    }
+
+    private struct NewComment: Encodable, Sendable {
+        let body: String
+        let parentId: Int64?
+    }
+
+    /// A top-level comment (parentID nil) or a reply.
+    public static func createComment(postID: Int64, parentID: Int64?, body: String) -> Endpoint<Comment> {
+        Endpoint(.post, "/v1/posts/\(postID)/comments", body: NewComment(body: body, parentId: parentID), auth: .required)
+    }
+
     /// Sets the vote to a state (-1, 0, 1): safe to retry, unlike a toggle.
     public static func votePost(_ id: Int64, value: Int) -> Endpoint<VoteResult> {
         Endpoint(.put, "/v1/posts/\(id)/vote", body: ["value": value], auth: .required)
