@@ -10,6 +10,10 @@ public enum Route: Hashable, Sendable {
     case commentThread(commentID: Int64)
     /// Ответы, упоминания, реакции: opened from the bell in the feed header.
     case activity
+    /// Настройки, from the gear on your profile, and their pages.
+    case settings
+    case appearance
+    case editProfile
 }
 
 extension Route {

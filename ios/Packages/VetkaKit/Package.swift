@@ -5,7 +5,7 @@ import PackageDescription
 // so dependencies are explicit, `internal` is the default boundary, and
 // incremental builds only recompile what changed.
 //
-//   AppFeature ─▶ Communities/Search/Auth/Feed/Post/ComposeFeature ─▶ FeedUI ─▶ Stores, DesignSystem
+//   AppFeature ─▶ Communities/Search/Auth/Feed/Post/Compose/Profile/SettingsFeature ─▶ FeedUI ─▶ Stores, DesignSystem
 //       │                │                                          │
 //       └──▶ Session ─▶ Networking ─▶ Core ◀────────────────────────┘
 //
@@ -27,13 +27,16 @@ let package = Package(
         .target(name: "Stores", dependencies: ["Core", "Networking", "DesignSystem"]),
         .target(name: "FeedUI", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
         .target(name: "CommunitiesFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
-        .target(name: "AuthFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem"]),
+        .target(name: "AuthFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem", "Stores"]),
         .target(name: "SearchFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
         .target(name: "FeedFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
         .target(name: "PostFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
         .target(name: "ComposeFeature", dependencies: ["Core", "Networking", "DesignSystem"]),
+        .target(name: "ProfileFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores", "FeedUI"]),
+        .target(name: "SettingsFeature", dependencies: ["Core", "Networking", "DesignSystem", "Stores"]),
         .target(name: "AppFeature", dependencies: ["Core", "Networking", "Session", "DesignSystem", "Stores", "FeedUI",
-                                                   "CommunitiesFeature", "SearchFeature", "AuthFeature", "FeedFeature", "PostFeature", "ComposeFeature"]),
+                                                   "CommunitiesFeature", "SearchFeature", "AuthFeature", "FeedFeature", "PostFeature", "ComposeFeature",
+                                                   "ProfileFeature", "SettingsFeature"]),
 
         .testTarget(name: "CoreTests", dependencies: ["Core"]),
         .testTarget(name: "NetworkingTests", dependencies: ["Networking"]),
@@ -44,5 +47,6 @@ let package = Package(
         .testTarget(name: "SearchFeatureTests", dependencies: ["SearchFeature", "Stores"]),
         .testTarget(name: "PostFeatureTests", dependencies: ["PostFeature", "Stores"]),
         .testTarget(name: "ComposeFeatureTests", dependencies: ["ComposeFeature"]),
+        .testTarget(name: "SettingsFeatureTests", dependencies: ["SettingsFeature", "Stores"]),
     ]
 )

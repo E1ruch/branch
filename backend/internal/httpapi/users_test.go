@@ -73,8 +73,43 @@ func TestProfileAPI(t *testing.T) {
 		t.Errorf("user comments: %v", body)
 	}
 
+	// Follows: a state, so a second PUT changes nothing; counters on both sides.
+	for range 2 {
+		if status, body := c.call("PUT", "/v1/users/ivan/follow", other, nil); status != http.StatusOK || body["is_following"] != true || body["followers_count"] != 1.0 {
+			t.Fatalf("follow: %d %v", status, body)
+		}
+	}
+	if _, body := c.call("GET", "/v1/users/ivan", other, nil); body["is_following"] != true || body["posts_count"] != 1.0 {
+		t.Errorf("profile as follower: %v", body)
+	}
+	if _, body := c.call("GET", "/v1/users/ivan", "", nil); body["is_following"] != false {
+		t.Errorf("profile signed out: %v", body)
+	}
+	if _, body := c.call("GET", "/v1/users/taken_name", "", nil); body["following_count"] != 1.0 {
+		t.Errorf("follower's following_count: %v", body)
+	}
+	if status, body := c.call("PUT", "/v1/users/ivan/follow", me, nil); status != http.StatusUnprocessableEntity || errCode(body) != "cannot_follow_self" {
+		t.Errorf("follow self: %d %v", status, body)
+	}
+	if status, _ := c.call("PUT", "/v1/users/ivan/follow", "", nil); status != http.StatusUnauthorized {
+		t.Errorf("follow signed out: %d", status)
+	}
+	if status, body := c.call("DELETE", "/v1/users/ivan/follow", other, nil); status != http.StatusOK || body["is_following"] != false || body["followers_count"] != 0.0 {
+		t.Errorf("unfollow: %d %v", status, body)
+	}
+	c.call("PUT", "/v1/users/ivan/follow", other, nil)
+
+	_, p2 := c.call("POST", "/v1/communities/news/posts", me, map[string]any{"title": "Второй"})
+	c.call("DELETE", fmt.Sprintf("/v1/posts/%d", int64(p2["id"].(float64))), me, nil)
+	if _, body := c.call("GET", "/v1/me", me, nil); body["posts_count"] != 1.0 {
+		t.Errorf("posts_count after create and delete: %v", body["posts_count"])
+	}
+
 	if status, _ := c.call("DELETE", "/v1/me", me, nil); status != http.StatusNoContent {
 		t.Errorf("delete: %d", status)
+	}
+	if _, body := c.call("GET", "/v1/users/taken_name", "", nil); body["following_count"] != 0.0 {
+		t.Errorf("following_count after the followee left: %v", body)
 	}
 	if status, _ := c.call("GET", "/v1/me", me, nil); status != http.StatusUnauthorized {
 		t.Errorf("me after delete: %d, want 401 so the app signs out", status)

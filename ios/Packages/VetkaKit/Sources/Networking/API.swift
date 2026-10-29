@@ -211,8 +211,14 @@ public enum API {
 
     // MARK: Users
 
-    public static func user(_ username: String) -> Endpoint<User> {
+    public static func user(_ username: String) -> Endpoint<Profile> {
         Endpoint(.get, "/v1/users/\(username)")
+    }
+
+    /// Sets the follow to a state (PUT follows, DELETE stops), like
+    /// community subscriptions. Returns the profile with the fresh count.
+    public static func setFollow(_ username: String, following: Bool) -> Endpoint<Profile> {
+        Endpoint(following ? .put : .delete, "/v1/users/\(username)/follow", auth: .required)
     }
 
     public static func userPosts(_ username: String, cursor: String? = nil) -> Endpoint<Page<Post>> {

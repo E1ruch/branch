@@ -1,4 +1,5 @@
 import Core
+import DesignSystem
 import Foundation
 import Networking
 import Session
@@ -16,6 +17,10 @@ public final class AppEnvironment {
     public let posts: PostStore
     /// Every community on screen, shared by the search tab and community pages.
     public let communities: CommunityStore
+    /// Every profile on screen, shared by profile pages (and your own tab).
+    public let profiles: ProfileStore
+    /// Light or dark, as picked in Оформление.
+    public let theme = ThemeStore()
     public let features = Features()
     let router = AppRouter()
 
@@ -34,10 +39,14 @@ public final class AppEnvironment {
         self.session = session
         posts = PostStore(client: client)
         communities = CommunityStore(client: client)
+        profiles = ProfileStore(client: client)
         router.isSignedIn = { [weak session] in session?.state == .signedIn }
         posts.requestSignIn = { [weak router] in router?.isAuthPresented = true }
         communities.requestSignIn = { [weak router] in router?.isAuthPresented = true }
         communities.isSignedIn = { [weak session] in session?.state == .signedIn }
+        profiles.requestSignIn = { [weak router] in router?.isAuthPresented = true }
+        profiles.isSignedIn = { [weak session] in session?.state == .signedIn }
+        profiles.myUsername = { [weak session] in session?.me?.username }
     }
 
     public static func live() -> AppEnvironment {

@@ -37,6 +37,10 @@ type userDTO struct {
 	PostKarma    int       `json:"post_karma"`
 	CommentKarma int       `json:"comment_karma"`
 	CreatedAt    time.Time `json:"created_at"`
+
+	PostsCount     int `json:"posts_count"`
+	FollowersCount int `json:"followers_count"`
+	FollowingCount int `json:"following_count"`
 }
 
 func toUserDTO(u user.User) userDTO {
@@ -48,6 +52,10 @@ func toUserDTO(u user.User) userDTO {
 		PostKarma:    u.PostKarma,
 		CommentKarma: u.CommentKarma,
 		CreatedAt:    u.CreatedAt,
+
+		PostsCount:     u.PostsCount,
+		FollowersCount: u.FollowersCount,
+		FollowingCount: u.FollowingCount,
 	}
 }
 

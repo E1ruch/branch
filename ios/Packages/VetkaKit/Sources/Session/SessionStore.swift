@@ -58,6 +58,11 @@ public final class SessionStore {
         needsOnboarding = false
     }
 
+    /// The profile was edited and saved.
+    public func didUpdate(_ updated: Me) {
+        me = updated
+    }
+
     public func signOut() async {
         if let refresh = await tokens.refreshToken {
             // Best effort: revoke on the server, but never block signing out.

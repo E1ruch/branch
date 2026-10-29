@@ -27,6 +27,9 @@ public protocol PagerHeader: UIView {
 ///
 /// Switching tabs keeps the header where it was: a page scrolled less than
 /// the header follows the current one, a page further down stays put.
+///
+/// With one page there is nothing to switch: no tabs, only the hairline
+/// under the header.
 public final class HeaderPagerViewController: UIViewController {
     public private(set) var selectedIndex: Int
     /// The header's title went under the navigation bar (true) or came back.
@@ -73,6 +76,7 @@ public final class HeaderPagerViewController: UIViewController {
         overlay.addSubview(header)
         tabBar.backgroundColor = Palette.surface
         hairline.backgroundColor = Palette.border
+        tabs.isHidden = pages.count < 2
         tabBar.addSubview(tabs)
         tabBar.addSubview(hairline)
         overlay.addSubview(tabBar)
@@ -95,11 +99,16 @@ public final class HeaderPagerViewController: UIViewController {
                 CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                 withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height)
         }
-        let tabsSize = tabs.sizeThatFits(view.bounds.size)
-        let padding = Self.tabBarPadding
-        let tabBarHeight = tabsSize.height + padding.top + padding.bottom
-        tabs.frame = CGRect(origin: CGPoint(x: padding.left, y: padding.top), size: tabsSize)
         let pixel = 1 / max(traitCollection.displayScale, 1)
+        let tabBarHeight: CGFloat
+        if tabs.isHidden {
+            tabBarHeight = pixel
+        } else {
+            let tabsSize = tabs.sizeThatFits(view.bounds.size)
+            let padding = Self.tabBarPadding
+            tabBarHeight = tabsSize.height + padding.top + padding.bottom
+            tabs.frame = CGRect(origin: CGPoint(x: padding.left, y: padding.top), size: tabsSize)
+        }
         hairline.frame = CGRect(x: 0, y: tabBarHeight - pixel, width: width, height: pixel)
         overlay.frame = view.bounds
         header.frame.size = CGSize(width: width, height: headerHeight)

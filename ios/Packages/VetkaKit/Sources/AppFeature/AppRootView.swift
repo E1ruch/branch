@@ -7,8 +7,10 @@ import FeedUI
 import DesignSystem
 import Networking
 import PostFeature
+import ProfileFeature
 import SearchFeature
 import Session
+import SettingsFeature
 import SwiftUI
 import UIKit
 
@@ -84,11 +86,12 @@ public struct AppRootView: View {
                 .tabItem { Label("Сообщества", systemImage: "square.grid.2x2") }
                 .tag(Tab.communities)
 
-            stack(.profile) { ProfileTabView(session: app.session, router: router) }
+            stack(.profile) { ProfileTabView(app: app, router: router) }
                 .tabItem { Label("Профиль", systemImage: "person.crop.circle") }
                 .tag(Tab.profile)
         }
         .tint(.vetkaBrand)
+        .background(ThemeWindowHook(store: app.theme))
         .overlay(alignment: .bottom) {
             Button { router.compose() } label: { Color.clear }
                 .frame(width: 76, height: 49)
@@ -122,9 +125,19 @@ public struct AppRootView: View {
             await app.session.start()
         }
         .onChange(of: app.session.state == .signedIn) {
-            // Subscriptions belong to the account: screens reload them.
+            // Subscriptions and follows belong to the account: screens reload them.
             app.communities.sessionChanged()
+            app.profiles.sessionChanged()
+            seedMyProfile()
         }
+        // Your profile is on screen the moment you open the tab: the store
+        // has it from /me before the profile request returns.
+        .onChange(of: app.session.me, initial: true) { seedMyProfile() }
+    }
+
+    private func seedMyProfile() {
+        guard let me = app.session.me else { return }
+        app.profiles.merge([Profile(me)])
     }
 
     /// The green "+" in the tab bar, drawn once. Tab bar icons are tinted
@@ -153,7 +166,7 @@ public struct AppRootView: View {
 }
 
 /// Maps a route to its screen. Screens arrive module by module; until then
-/// each route shows what it will be.
+/// a route shows what it will be (Активность).
 struct RouteView: View {
     let route: Route
     let app: AppEnvironment
@@ -171,12 +184,29 @@ struct RouteView: View {
                             requestSignIn: { router.isAuthPresented = true },
                             compose: { router.compose(in: $0) })
         case let .user(username):
-            Placeholder(title: username, systemImage: "person",
-                        note: "Публичный профиль — в модуле «Профиль».")
+            ProfileScreen(username: username,
+                          isMe: username.lowercased() == app.session.me?.username.lowercased(),
+                          profiles: app.profiles, posts: app.posts, feed: LiveFeedService(client: app.client),
+                          isSignedIn: app.session.state == .signedIn,
+                          open: { router.push($0) },
+                          requestSignIn: { router.isAuthPresented = true })
         case let .commentThread(id):
             thread(.branch(commentID: id))
         case .activity:
             ActivityPlaceholder()
+        case .settings:
+            SettingsScreen(me: app.session.me, theme: app.theme) {
+                // Back to the profile tab's root, which turns into the
+                // sign-in invitation once the session ends.
+                router.popToRoot(.profile)
+                await app.session.signOut()
+            }
+        case .appearance:
+            AppearanceScreen(theme: app.theme)
+        case .editProfile:
+            if let me = app.session.me {
+                EditProfileScreen(model: EditProfileModel(me: me, client: app.client)) { app.session.didUpdate($0) }
+            }
         }
     }
 
@@ -191,18 +221,6 @@ struct RouteView: View {
     }
 }
 
-struct Placeholder: View {
-    let title: String
-    let systemImage: String
-    let note: String
-
-    var body: some View {
-        ContentUnavailableView(title, systemImage: systemImage, description: Text(note))
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
 struct ActivityPlaceholder: View {
     var body: some View {
         ContentUnavailableView("Активность", systemImage: "bell",
@@ -214,40 +232,38 @@ struct ActivityPlaceholder: View {
 
 
 struct ProfileTabView: View {
-    let session: SessionStore
+    let app: AppEnvironment
     let router: AppRouter
 
     var body: some View {
-        Group {
-            switch session.state {
-            case .signedOut:
-                ContentUnavailableView {
-                    Label("Вы не вошли", systemImage: "person.crop.circle.badge.questionmark")
-                } description: {
-                    Text("Войдите, чтобы голосовать, комментировать и подписываться на сообщества.")
-                } actions: {
-                    Button("Войти") { router.isAuthPresented = true }
-                        .buttonStyle(.vetkaPrimary(fullWidth: false))
-                        .accessibilityIdentifier("profile.signIn")
-                }
-            case .signedIn:
-                if let me = session.me {
-                    List {
-                        if let name = me.displayName {
-                            LabeledContent("Имя", value: name)
-                        }
-                        LabeledContent("Ник", value: me.username)
-                            .accessibilityIdentifier("profile.username")
-                        LabeledContent("Карма за посты", value: me.postKarma.formatted())
-                        LabeledContent("Карма за комментарии", value: me.commentKarma.formatted())
-                        Button("Выйти", role: .destructive) { Task { await session.signOut() } }
-                    }
-                } else {
-                    List { SkeletonBar(width: 180) ; SkeletonBar(width: 140) }
-                        .shimmer()
-                }
+        switch app.session.state {
+        case .signedOut:
+            ContentUnavailableView {
+                Label("Вы не вошли", systemImage: "person.crop.circle.badge.questionmark")
+            } description: {
+                Text("Войдите, чтобы голосовать, комментировать и подписываться на сообщества.")
+            } actions: {
+                Button("Войти") { router.isAuthPresented = true }
+                    .buttonStyle(.vetkaPrimary(fullWidth: false))
+                    .accessibilityIdentifier("profile.signIn")
+            }
+            .navigationTitle("Профиль")
+        case .signedIn:
+            if let me = app.session.me {
+                ProfileScreen(username: me.username, isMe: true, profiles: app.profiles, posts: app.posts,
+                              feed: LiveFeedService(client: app.client), isSignedIn: true,
+                              open: { router.push($0) },
+                              requestSignIn: { router.isAuthPresented = true },
+                              openSettings: { router.push(.settings) })
+                    // A new username is another profile: the screen starts over.
+                    .id(me.username)
+            } else {
+                // Signed in, /me still on its way (offline at launch).
+                List { SkeletonBar(width: 180) ; SkeletonBar(width: 140) }
+                    .shimmer()
+                    .navigationTitle("Профиль")
+                    .task { await app.session.reloadMe() }
             }
         }
-        .navigationTitle("Профиль")
     }
 }

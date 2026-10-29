@@ -68,6 +68,10 @@ final class AppRouter {
         }
     }
 
+    func popToRoot(_ tab: Tab) {
+        paths[tab] = []
+    }
+
     func push(_ route: Route) {
         paths[selectedTab, default: []].append(route)
     }

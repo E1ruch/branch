@@ -12,6 +12,9 @@ public struct User: Codable, Sendable, Hashable, Identifiable {
     public let postKarma: Int
     public let commentKarma: Int
     public let createdAt: Date
+    public let postsCount: Int
+    public let followersCount: Int
+    public let followingCount: Int
 }
 
 /// The signed-in user's own profile: the public one plus owner-only fields.
@@ -23,8 +26,72 @@ public struct Me: Codable, Sendable, Hashable, Identifiable {
     public let postKarma: Int
     public let commentKarma: Int
     public let createdAt: Date
+    public let postsCount: Int
+    public let followersCount: Int
+    public let followingCount: Int
     /// When a new username can be picked; nil means now.
     public let usernameChangeableAt: Date?
+}
+
+/// Someone's profile as the viewer sees it (GET /v1/users/{username}).
+public struct Profile: Codable, Sendable, Hashable, Identifiable {
+    public let id: Int64
+    public let username: String
+    public let displayName: String?
+    public let bio: String?
+    public let postKarma: Int
+    public let commentKarma: Int
+    public let createdAt: Date
+    public let postsCount: Int
+    public let followersCount: Int
+    public let followingCount: Int
+    /// Always false for yourself and when signed out.
+    public let isFollowing: Bool
+
+    public init(id: Int64, username: String, displayName: String?, bio: String?, postKarma: Int, commentKarma: Int,
+                createdAt: Date, postsCount: Int, followersCount: Int, followingCount: Int, isFollowing: Bool) {
+        self.id = id
+        self.username = username
+        self.displayName = displayName
+        self.bio = bio
+        self.postKarma = postKarma
+        self.commentKarma = commentKarma
+        self.createdAt = createdAt
+        self.postsCount = postsCount
+        self.followersCount = followersCount
+        self.followingCount = followingCount
+        self.isFollowing = isFollowing
+    }
+
+    /// Your own profile, known before the request for it returns.
+    public init(_ me: Me) {
+        self.init(id: me.id, username: me.username, displayName: me.displayName, bio: me.bio,
+                  postKarma: me.postKarma, commentKarma: me.commentKarma, createdAt: me.createdAt,
+                  postsCount: me.postsCount, followersCount: me.followersCount,
+                  followingCount: me.followingCount, isFollowing: false)
+    }
+
+    /// What the header shows first: the display name, else the username.
+    public var name: String { displayName ?? username }
+
+    /// Both kinds of karma: the header shows the sum, the split on tap.
+    public var karma: Int { postKarma + commentKarma }
+
+    /// A copy with the viewer's follow changed: optimistic UI shows it
+    /// before the server confirms.
+    public func with(isFollowing: Bool, followersCount: Int) -> Profile {
+        Profile(id: id, username: username, displayName: displayName, bio: bio, postKarma: postKarma,
+                commentKarma: commentKarma, createdAt: createdAt, postsCount: postsCount,
+                followersCount: followersCount, followingCount: followingCount, isFollowing: isFollowing)
+    }
+
+    /// A copy with another "подписки" count: you followed someone from
+    /// another screen while your own profile was loaded.
+    public func with(followingCount: Int) -> Profile {
+        Profile(id: id, username: username, displayName: displayName, bio: bio, postKarma: postKarma,
+                commentKarma: commentKarma, createdAt: createdAt, postsCount: postsCount,
+                followersCount: followersCount, followingCount: followingCount, isFollowing: isFollowing)
+    }
 }
 
 public struct Community: Codable, Sendable, Hashable, Identifiable {
@@ -240,6 +307,13 @@ public struct UsernameAvailability: Decodable, Sendable, Hashable {
     public let reason: String?
     /// Why an invalid name is invalid, from the server's rules.
     public let message: String?
+
+    public init(username: String, available: Bool, reason: String?, message: String?) {
+        self.username = username
+        self.available = available
+        self.reason = reason
+        self.message = message
+    }
 }
 
 extension Post {

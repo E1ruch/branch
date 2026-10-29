@@ -90,13 +90,48 @@ func (h *userHandlers) deleteMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// profileDTO is someone's profile as the viewer sees it.
+type profileDTO struct {
+	userDTO
+	IsFollowing bool `json:"is_following"`
+}
+
 func (h *userHandlers) profile(w http.ResponseWriter, r *http.Request) {
 	u, err := h.users.GetByUsername(r.Context(), chi.URLParam(r, "username"))
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toUserDTO(u))
+	h.writeProfile(w, r, u)
+}
+
+// follow: PUT /v1/users/{username}/follow. A state, not a toggle.
+func (h *userHandlers) follow(w http.ResponseWriter, r *http.Request) {
+	u, err := h.users.Follow(r.Context(), viewer(r), chi.URLParam(r, "username"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: true})
+}
+
+// unfollow: DELETE /v1/users/{username}/follow.
+func (h *userHandlers) unfollow(w http.ResponseWriter, r *http.Request) {
+	u, err := h.users.Unfollow(r.Context(), viewer(r), chi.URLParam(r, "username"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: false})
+}
+
+func (h *userHandlers) writeProfile(w http.ResponseWriter, r *http.Request, u user.User) {
+	following, err := h.users.IsFollowing(r.Context(), viewer(r), u.ID)
+	if err != nil {
+		internalError(w, r, h.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: following})
 }
 
 func (h *userHandlers) userPosts(w http.ResponseWriter, r *http.Request) {
@@ -189,6 +224,8 @@ func (h *userHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "user not found")
 	case errors.Is(err, user.ErrUsernameTaken):
 		writeFieldError(w, http.StatusConflict, "username_taken", "username", "this username is taken")
+	case errors.Is(err, user.ErrFollowSelf):
+		writeError(w, http.StatusUnprocessableEntity, "cannot_follow_self", "you cannot follow yourself")
 	case errors.Is(err, user.ErrUsernameChangeTooSoon):
 		writeFieldError(w, http.StatusConflict, "username_change_too_soon", "username", "username can be changed once in 30 days")
 	default:

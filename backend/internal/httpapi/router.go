@@ -101,6 +101,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", userH.profile)
 				r.Get("/posts", userH.userPosts)
 				r.Get("/comments", userH.userComments)
+				r.With(requireAuth).Put("/follow", userH.follow)
+				r.With(requireAuth).Delete("/follow", userH.unfollow)
 			})
 			r.Get("/usernames/{username}/availability", userH.usernameAvailability)
 

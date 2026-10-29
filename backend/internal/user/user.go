@@ -18,6 +18,7 @@ var (
 	ErrNotFound              = errors.New("user: not found")
 	ErrUsernameTaken         = errors.New("user: username taken")
 	ErrUsernameChangeTooSoon = errors.New("user: username changed recently")
+	ErrFollowSelf            = errors.New("user: cannot follow yourself")
 )
 
 type ValidationError struct {
@@ -36,6 +37,10 @@ type User struct {
 	CommentKarma int
 	CreatedAt    time.Time
 
+	PostsCount     int
+	FollowersCount int
+	FollowingCount int
+
 	// When the user may pick a new username; nil means now.
 	UsernameChangeableAt *time.Time
 }
@@ -49,12 +54,13 @@ const (
 // Columns is the select list matching Scan, for queries in other packages
 // that return users (sign-up, for one).
 const Columns = `id, username, display_name, bio, post_karma, comment_karma, created_at,
+	posts_count, followers_count, following_count,
 	username_changed_at + interval '30 days'`
 
 func Scan(row pgx.Row) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.PostKarma, &u.CommentKarma, &u.CreatedAt,
-		&u.UsernameChangeableAt)
+		&u.PostsCount, &u.FollowersCount, &u.FollowingCount, &u.UsernameChangeableAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -258,6 +264,48 @@ func (s *Store) Update(ctx context.Context, id int64, in UpdateInput) (User, err
 	return s.Get(ctx, id)
 }
 
+// Follow and Unfollow set the desired state rather than toggle it, as
+// community subscriptions do, so retries and double taps are harmless. Both
+// return the fresh profile for the client to reconcile its optimistic counter.
+func (s *Store) Follow(ctx context.Context, followerID int64, username string) (User, error) {
+	u, err := s.GetByUsername(ctx, username)
+	if err != nil {
+		return User{}, err
+	}
+	if u.ID == followerID {
+		return User{}, ErrFollowSelf
+	}
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO user_follows (follower_id, followee_id) VALUES ($1, $2)
+		ON CONFLICT DO NOTHING`, followerID, u.ID); err != nil {
+		return User{}, err
+	}
+	return s.Get(ctx, u.ID)
+}
+
+func (s *Store) Unfollow(ctx context.Context, followerID int64, username string) (User, error) {
+	u, err := s.GetByUsername(ctx, username)
+	if err != nil {
+		return User{}, err
+	}
+	if _, err := s.db.Exec(ctx,
+		`DELETE FROM user_follows WHERE follower_id = $1 AND followee_id = $2`, followerID, u.ID); err != nil {
+		return User{}, err
+	}
+	return s.Get(ctx, u.ID)
+}
+
+// IsFollowing is false for signed-out viewers (0) and for yourself.
+func (s *Store) IsFollowing(ctx context.Context, followerID, followeeID int64) (bool, error) {
+	if followerID == 0 || followerID == followeeID {
+		return false, nil
+	}
+	var ok bool
+	err := s.db.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM user_follows WHERE follower_id = $1 AND followee_id = $2)`, followerID, followeeID).Scan(&ok)
+	return ok, err
+}
+
 // Delete closes the account, as App Store rules require the app to offer.
 //
 // Posts and comments stay (threads would break otherwise) but lose their
@@ -288,6 +336,8 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 		`DELETE FROM password_credentials WHERE user_id = $1`,
 		`DELETE FROM community_members WHERE user_id = $1`,
 		`DELETE FROM community_moderators WHERE user_id = $1`,
+		// Both directions, so other people's counters drop too.
+		`DELETE FROM user_follows WHERE follower_id = $1 OR followee_id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, sql, id); err != nil {
 			return err
