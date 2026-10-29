@@ -151,9 +151,24 @@ func TestEditAndDeleteKeepThread(t *testing.T) {
 	top := e.add(t, nil, "top", 0)
 	e.add(t, &top, "reply", 0)
 
+	same, err := e.svc.Edit(e.ctx, top.ID, e.author, "  top ")
+	if err != nil || same.EditedAt != nil {
+		t.Errorf("edit to the same text marked as edited: %+v, %v", same, err)
+	}
 	edited, err := e.svc.Edit(e.ctx, top.ID, e.author, "правка")
 	if err != nil || edited.Body != "правка" || edited.EditedAt == nil {
 		t.Errorf("edit: %+v, %v", edited, err)
+	}
+	var verr *ValidationError
+	if _, err := e.svc.Edit(e.ctx, top.ID, e.author, strings.Repeat("я", maxBody+1)); !errors.As(err, &verr) {
+		t.Errorf("edit over the limit: %v", err)
+	}
+	if _, err := e.svc.Edit(e.ctx, top.ID, e.author, strings.Repeat("я", maxBody)); err != nil {
+		t.Errorf("edit at the limit: %v", err)
+	}
+	limited := NewService(e.db, denyAll{})
+	if _, err := limited.Edit(e.ctx, top.ID, e.author, "ещё правка"); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("edit over the rate limit: %v", err)
 	}
 	if _, err := e.svc.Edit(e.ctx, top.ID, stranger, "x"); !errors.Is(err, ErrForbidden) {
 		t.Errorf("stranger edit: %v", err)

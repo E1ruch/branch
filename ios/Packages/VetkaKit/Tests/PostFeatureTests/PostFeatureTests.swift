@@ -85,6 +85,18 @@ actor FakePostService: PostService {
         return page
     }
 
+    var edits: [(Int64, String)] = []
+    var editError: APIError?
+    func failEdits(with error: APIError?) { editError = error }
+
+    func editComment(_ id: Int64, body: String) async throws(APIError) -> Core.Comment {
+        edits.append((id, body))
+        if let editError { throw editError }
+        return Core.Comment(id: id, postId: 1, parentId: nil, depth: 0, body: body, isDeleted: false,
+                            author: AuthorRef(id: 9, username: "me", displayName: nil), score: 0, myVote: 0,
+                            replyCount: 0, createdAt: Date(), editedAt: Date())
+    }
+
     func createComment(postID: Int64, parentID: Int64?, body: String) async throws(APIError) -> Core.Comment {
         created.append((parentID, body))
         if let createError { throw createError }
@@ -122,6 +134,44 @@ actor FakePostService: PostService {
             comment(3, parent: 1, depth: 1), more(1, depth: 1, count: 2, cursor: "after3"),
             comment(4, authorID: 2),
         ]))
+    }
+
+    @Test func editIsInstantAndOnlyForYourOwnComments() async throws {
+        let service = FakePostService()
+        await service.set(post: post(1, comments: 2))
+        await service.set(thread: page([comment(1, authorID: 9), comment(2)]))
+        let (m, _) = await model(service)
+        await m.load()
+        let mine = try #require(m.comments[1]), theirs = try #require(m.comments[2])
+        #expect(m.canEdit(mine) && !m.canEdit(theirs))
+
+        let before = try #require(m.layouts[1]).height
+        m.edit(1, text: "  новый текст, " + String(repeating: "длиннее прежнего ", count: 10))
+        #expect(m.comments[1]?.body?.hasPrefix("новый текст") == true && m.comments[1]?.editedAt != nil)
+        #expect(try #require(m.layouts[1]).height > before) // measured again
+        m.edit(2, text: "чужой") // not mine: nothing
+        #expect(m.comments[2]?.body == "комментарий 2")
+
+        try await Task.sleep(for: .milliseconds(50))
+        let edits = await service.edits
+        #expect(edits.count == 1 && edits[0].0 == 1 && edits[0].1.hasPrefix("новый текст")) // trimmed
+    }
+
+    @Test func failedEditRollsBackAndReturnsTheText() async throws {
+        let service = FakePostService()
+        await service.set(post: post(1, comments: 1))
+        await service.set(thread: page([comment(1, authorID: 9)]))
+        await service.failEdits(with: .transport(.notConnectedToInternet))
+        let (m, _) = await model(service)
+        await m.load()
+        var returned: (Int64, String)?
+        m.onEditFailed = { id, text, _ in returned = (id, text) }
+
+        m.edit(1, text: "правка")
+        #expect(m.comments[1]?.body == "правка")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(m.comments[1]?.body == "комментарий 1" && m.comments[1]?.editedAt == nil)
+        #expect(returned?.0 == 1 && returned?.1 == "правка")
     }
 
     @Test func loadsThePostAndTheFlatThread() async {

@@ -84,6 +84,9 @@ final class ThreadModel {
     var onChange: ((Change) -> Void)?
     /// A comment did not go through: its text goes back to the composer.
     var onSendFailed: ((_ text: String, _ parentID: Int64?, APIError) -> Void)?
+    /// An edit did not go through: the old text is back in the thread, the
+    /// new one goes back to the composer.
+    var onEditFailed: ((_ id: Int64, _ text: String, APIError) -> Void)?
 
     private let service: any PostService
     private let store: PostStore
@@ -94,6 +97,8 @@ final class ThreadModel {
     private var isLoadingMore = false
     private var loadGeneration = 0
     private var lastTempID: Int64 = 0
+    /// Comments with an edit on its way: the text the server last confirmed.
+    private var confirmedEdits: [Int64: Comment] = [:]
 
     /// Load the next page this many rows before the end.
     static let prefetchDistance = 8
@@ -646,6 +651,56 @@ final class ThreadModel {
             onSendFailed?(body, composerParent, error)
             if error == .unauthorized { requestSignIn() }
         }
+    }
+
+    /// Whether the signed-in user may edit this comment.
+    func canEdit(_ comment: Comment) -> Bool {
+        guard let viewer, !comment.isDeleted, comment.body != nil, !pending.contains(comment.id) else { return false }
+        return comment.author?.id == viewer.id
+    }
+
+    /// Shows the new text at once ("изменено" included) and saves it. An
+    /// error puts the confirmed text back and hands the new one to the
+    /// composer for another try.
+    func edit(_ id: Int64, text: String) {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let comment = comments[id], canEdit(comment), !body.isEmpty, body != comment.body else { return }
+        if confirmedEdits[id] == nil {
+            confirmedEdits[id] = comment
+        }
+        show(comment.with(body: body, editedAt: Date()))
+        Task { [weak self] in
+            await self?.saveEdit(id, body: body)
+        }
+    }
+
+    private func saveEdit(_ id: Int64, body: String) async {
+        do {
+            let saved = try await service.editComment(id, body: body)
+            guard let current = comments[id] else { return }
+            let confirmed = current.with(body: saved.body, editedAt: saved.editedAt)
+            if current.body == body {
+                confirmedEdits[id] = nil
+                Haptics.success()
+            } else {
+                confirmedEdits[id] = confirmed // a newer edit is on its way
+            }
+        } catch {
+            // A newer edit took over: its own outcome decides.
+            guard comments[id]?.body == body, let old = confirmedEdits.removeValue(forKey: id),
+                  let current = comments[id] else { return }
+            show(current.with(body: old.body, editedAt: old.editedAt))
+            Haptics.error()
+            onEditFailed?(id, body, error)
+            if error == .unauthorized { requestSignIn() }
+        }
+    }
+
+    /// A comment changed its text: measure it again and resize its row.
+    private func show(_ comment: Comment) {
+        comments[comment.id] = comment
+        layouts[comment.id] = CommentLayout.make(for: comment, baseDepth: baseDepth, width: width, fonts: fonts)
+        onChange?(.rows(animated: true, reconfigure: [.comment(comment.id)]))
     }
 
     /// Signing in or out changes my_vote everywhere: load again.

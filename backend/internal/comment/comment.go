@@ -57,10 +57,17 @@ type AuthorRef struct {
 }
 
 const (
-	maxBody = 10000
+	// A long answer fits, a wall of text does not (Telegram stops a
+	// message at 4096). The column's CHECK stays at 10000: older comments
+	// are valid, and it is the backstop, not the rule.
+	maxBody = 4000
 
 	commentsPerWindow = 20
 	commentsWindow    = 10 * time.Minute
+
+	// Fixing a typo twice is normal; rewriting comments by script is not.
+	editsPerWindow = 30
+	editsWindow    = 10 * time.Minute
 )
 
 type Service struct {
@@ -173,8 +180,16 @@ func (s *Service) Edit(ctx context.Context, id, userID int64, body string) (Comm
 	if err := s.checkAuthor(ctx, id, userID, false); err != nil {
 		return Comment{}, err
 	}
+	ok, err := s.limiter.Allow(ctx, "comment-edit:"+strconv.FormatInt(userID, 10), editsPerWindow, editsWindow)
+	if err != nil {
+		return Comment{}, err
+	}
+	if !ok {
+		return Comment{}, ErrRateLimited
+	}
+	// The same text again is not an edit: no "изменено" for nothing.
 	if _, err := s.db.Exec(ctx,
-		`UPDATE comments SET body = $2, edited_at = $3 WHERE id = $1 AND deleted_at IS NULL`,
+		`UPDATE comments SET body = $2, edited_at = $3 WHERE id = $1 AND deleted_at IS NULL AND body <> $2`,
 		id, body, s.now()); err != nil {
 		return Comment{}, err
 	}

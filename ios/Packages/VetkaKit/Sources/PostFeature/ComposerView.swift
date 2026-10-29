@@ -1,9 +1,12 @@
+import Core
 import DesignSystem
 import UIKit
 
 /// The comment field at the bottom of a thread: grows with the text up to
-/// a few lines, shows whom it answers, sends with the green arrow. Signed
-/// out, it is a single button that asks to sign in.
+/// a few lines, shows whom it answers, sends with the green arrow. Near the
+/// length limit a counter shows what is left; over it, sending stops. In
+/// edit mode it holds your comment's text and saves with a check mark, as
+/// Telegram does. Signed out, it is a single button that asks to sign in.
 ///
 /// Auto Layout is fine here: one view that changes when the user types,
 /// not cells that change while scrolling.
@@ -16,6 +19,7 @@ final class ComposerView: UIView, UITextViewDelegate {
     let textView = UITextView()
     private let placeholder = UILabel()
     private let sendButton = UIButton(type: .system)
+    private let counterLabel = UILabel()
     private let signInButton = UIButton(type: .system)
     private let topBorder = UIView()
     private var textHeight: NSLayoutConstraint!
@@ -24,12 +28,19 @@ final class ComposerView: UIView, UITextViewDelegate {
 
     /// The comment this field answers; nil for a top-level comment.
     private(set) var replyTo: Int64?
+    /// The comment being edited, and its text before the edit.
+    private(set) var editing: Int64?
+    private var originalText = ""
     var onSend: ((String, Int64?) -> Void)?
+    var onEdit: ((_ id: Int64, _ text: String) -> Void)?
     var onSignIn: (() -> Void)?
     /// The field gained or lost the keyboard.
     var onEditingChanged: ((Bool) -> Void)?
 
     static let maxLines: CGFloat = 6
+    /// The counter shows from here on, like Telegram's: early enough to
+    /// plan, late enough not to nag.
+    static let counterThreshold = Comment.maxLength * 4 / 5
 
     var isSignedIn = true {
         didSet {
@@ -54,7 +65,10 @@ final class ComposerView: UIView, UITextViewDelegate {
         cancelReplyButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         cancelReplyButton.tintColor = Palette.iconSecondary
         cancelReplyButton.accessibilityLabel = "Отменить ответ"
-        cancelReplyButton.addAction(UIAction { [weak self] _ in self?.endReply() }, for: .touchUpInside)
+        cancelReplyButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            if editing != nil { endEdit() } else { endReply() }
+        }, for: .touchUpInside)
         replyBar.clipsToBounds = true
 
         errorLabel.font = .preferredFont(forTextStyle: .footnote)
@@ -80,8 +94,11 @@ final class ComposerView: UIView, UITextViewDelegate {
         placeholder.textColor = Palette.textTertiary
         placeholder.isAccessibilityElement = false
 
-        sendButton.setImage(UIImage(systemName: "arrow.up.circle.fill",
-                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 30)), for: .normal)
+        sendButton.setImage(Self.sendImage, for: .normal)
+        counterLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        counterLabel.textAlignment = .center
+        counterLabel.alpha = 0
+        counterLabel.isAccessibilityElement = false
         sendButton.tintColor = Palette.iconDisabled
         sendButton.accessibilityLabel = "Отправить"
         sendButton.accessibilityIdentifier = "composer.send"
@@ -97,7 +114,7 @@ final class ComposerView: UIView, UITextViewDelegate {
         signInButton.isHidden = true
         signInButton.addAction(UIAction { [weak self] _ in self?.onSignIn?() }, for: .touchUpInside)
 
-        for view in [topBorder, replyBar, errorLabel, field, sendButton, signInButton] as [UIView] {
+        for view in [topBorder, replyBar, errorLabel, field, sendButton, counterLabel, signInButton] as [UIView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -152,6 +169,8 @@ final class ComposerView: UIView, UITextViewDelegate {
             sendButton.bottomAnchor.constraint(equalTo: field.bottomAnchor),
             sendButton.widthAnchor.constraint(equalToConstant: 40),
             sendButton.heightAnchor.constraint(equalToConstant: 38),
+            counterLabel.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
+            counterLabel.bottomAnchor.constraint(equalTo: sendButton.topAnchor, constant: -2),
 
             signInButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             signInButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
@@ -165,6 +184,7 @@ final class ComposerView: UIView, UITextViewDelegate {
     // MARK: Replies
 
     func beginReply(to id: Int64, author: String) {
+        if editing != nil { endEdit() }
         replyTo = id
         replyLabel.text = "Ответ для \(author)"
         setBar(replyBarHeight, to: 28)
@@ -177,6 +197,50 @@ final class ComposerView: UIView, UITextViewDelegate {
         setBar(replyBarHeight, to: 0)
     }
 
+    // MARK: Editing
+
+    private static let sendImage = UIImage(systemName: "arrow.up.circle.fill",
+                                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 30))
+    private static let saveImage = UIImage(systemName: "checkmark.circle.fill",
+                                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 30))
+
+    /// Puts your comment's text in the field; the check mark saves it.
+    /// `text` differs from `original` when a failed save comes back.
+    func beginEdit(_ id: Int64, text: String, original: String? = nil) {
+        endReply()
+        editing = id
+        originalText = original ?? text
+        textView.text = text
+        replyLabel.text = "Редактирование"
+        cancelReplyButton.accessibilityLabel = "Отменить редактирование"
+        sendButton.setImage(Self.saveImage, for: .normal)
+        sendButton.accessibilityLabel = "Сохранить"
+        textViewDidChange(textView)
+        setBar(replyBarHeight, to: 28)
+        textView.becomeFirstResponder()
+        let end = textView.endOfDocument
+        textView.selectedTextRange = textView.textRange(from: end, to: end)
+    }
+
+    /// Leaves edit mode; the field is empty again for a new comment.
+    func endEdit() {
+        guard editing != nil else { return }
+        editing = nil
+        originalText = ""
+        textView.text = ""
+        cancelReplyButton.accessibilityLabel = "Отменить ответ"
+        sendButton.setImage(Self.sendImage, for: .normal)
+        sendButton.accessibilityLabel = "Отправить"
+        textViewDidChange(textView)
+        setBar(replyBarHeight, to: 0)
+    }
+
+    /// An edit that did not save comes back for another try.
+    func restoreEdit(_ id: Int64, text: String, original: String, error: String) {
+        beginEdit(id, text: text, original: original)
+        showError(error)
+    }
+
     /// A comment that did not go through comes back for another try.
     func restore(text: String, replyTo id: Int64?, author: String?, error: String) {
         if textView.text.isEmpty {
@@ -186,6 +250,10 @@ final class ComposerView: UIView, UITextViewDelegate {
         if let id, let author {
             beginReply(to: id, author: author)
         }
+        showError(error)
+    }
+
+    private func showError(_ error: String) {
         errorLabel.text = error
         setBar(errorHeight, to: ceil(errorLabel.font.lineHeight) + 4)
     }
@@ -203,8 +271,18 @@ final class ComposerView: UIView, UITextViewDelegate {
 
     private func send() {
         let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        onSend?(text, replyTo)
+        guard canSend(text) else { return }
+        if let editing {
+            onEdit?(editing, text)
+        } else {
+            onSend?(text, replyTo)
+        }
+    }
+
+    /// Something to send, within the limit; an edit must change the text.
+    private func canSend(_ text: String) -> Bool {
+        !text.isEmpty && text.unicodeScalars.count <= Comment.maxLength
+            && (editing == nil || text != originalText.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// After the model took the comment.
@@ -223,12 +301,14 @@ final class ComposerView: UIView, UITextViewDelegate {
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        let empty = textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sendable = canSend(text)
         placeholder.isHidden = !textView.text.isEmpty
-        if sendButton.isEnabled == empty {
-            sendButton.isEnabled = !empty
-            sendButton.tintColor = empty ? Palette.iconDisabled : Palette.accent
+        if sendButton.isEnabled != sendable {
+            sendButton.isEnabled = sendable
+            sendButton.tintColor = sendable ? Palette.accent : Palette.iconDisabled
         }
+        updateCounter(length: text.unicodeScalars.count)
         if errorHeight.constant > 0 {
             setBar(errorHeight, to: 0)
         }
@@ -242,5 +322,19 @@ final class ComposerView: UIView, UITextViewDelegate {
             textHeight.constant = height
             UIView.animate(withDuration: 0.15) { self.superview?.layoutIfNeeded() }
         }
+    }
+
+    /// What is left, above the send button: from the threshold on, red and
+    /// negative past the limit (pasted text is kept, not cut, so it can be
+    /// trimmed by hand).
+    private func updateCounter(length: Int) {
+        let left = Comment.maxLength - length
+        let visible = length >= Self.counterThreshold
+        counterLabel.text = left.formatted()
+        counterLabel.textColor = left < 0 ? Palette.destructive : Palette.textSecondary
+        textView.accessibilityValue = visible ? "Осталось символов: \(left)" : nil
+        let alpha: CGFloat = visible ? 1 : 0
+        guard counterLabel.alpha != alpha else { return }
+        UIView.animate(withDuration: 0.2) { self.counterLabel.alpha = alpha }
     }
 }

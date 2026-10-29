@@ -102,6 +102,17 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             composer.clear()
             scroll(to: row, position: .centeredVertically)
         }
+        composer.onEdit = { [weak self] id, text in
+            guard let self else { return }
+            model.edit(id, text: text)
+            composer.endEdit()
+            composer.textView.resignFirstResponder()
+        }
+        model.onEditFailed = { [weak self] id, text, error in
+            guard let self else { return }
+            composer.restoreEdit(id, text: text, original: model.comments[id]?.body ?? "",
+                                 error: Self.editErrorText(error))
+        }
         model.onSendFailed = { [weak self] text, parentID, error in
             guard let self else { return }
             composer.restore(text: text, replyTo: parentID,
@@ -358,6 +369,15 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
     }
 
+    /// "Изменить": the comment's text goes into the field below.
+    private func edit(_ id: Int64) {
+        guard let comment = model.comments[id], model.canEdit(comment), let body = comment.body else { return }
+        composer.beginEdit(id, text: body)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.scroll(to: .comment(id), position: .bottom)
+        }
+    }
+
     /// "К родительскому": scroll to it and tint it for a moment, or open
     /// the branch above when it is not on this screen.
     private func goToParent(of id: Int64) {
@@ -388,6 +408,17 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         guard let indexPath = dataSource.indexPath(for: row) else { return }
         collectionView.layoutIfNeeded()
         collectionView.scrollToItem(at: indexPath, at: position, animated: true)
+    }
+
+    static func editErrorText(_ error: APIError) -> String {
+        switch error.code {
+        case "rate_limited": return "Слишком много правок. Попробуйте через пару минут."
+        case "validation_failed": return "Комментарий слишком длинный."
+        case "not_found": return "Комментарий удалён."
+        default: break
+        }
+        if case .transport = error { return "Нет соединения — правка не сохранена." }
+        return "Не удалось сохранить правку. Попробуйте ещё раз."
     }
 
     static func sendErrorText(_ error: APIError) -> String {
@@ -450,7 +481,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
     }
 
-    /// Long press on a comment: reply, votes, parent, copy, author.
+    /// Long press on a comment: reply, votes, parent, edit (yours), copy, author.
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
                         point: CGPoint) -> UIContextMenuConfiguration? {
         guard let indexPath = indexPaths.first, case let .comment(id) = dataSource.itemIdentifier(for: indexPath),
@@ -478,6 +509,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                                      image: UIImage(systemName: "rectangle.compress.vertical")) { _ in
                 self?.toggleCollapse(id)
             })
+            if self?.model.canEdit(comment) == true {
+                children.append(UIAction(title: "Изменить", image: UIImage(systemName: "pencil")) { _ in
+                    self?.edit(id)
+                })
+            }
             if let body = comment.body, !deleted {
                 children.append(UIAction(title: "Скопировать текст", image: UIImage(systemName: "doc.on.doc")) { _ in
                     UIPasteboard.general.string = body

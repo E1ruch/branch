@@ -381,4 +381,15 @@ extension Comment {
                 author: author, score: score, myVote: myVote, replyCount: replyCount,
                 createdAt: createdAt, editedAt: editedAt)
     }
+
+    /// A copy with new text: an edit shown before the server confirms it.
+    public func with(body: String?, editedAt: Date?) -> Comment {
+        Comment(id: id, postId: postId, parentId: parentId, depth: depth, body: body, isDeleted: isDeleted,
+                author: author, score: score, myVote: myVote, replyCount: replyCount,
+                createdAt: createdAt, editedAt: editedAt)
+    }
+
+    /// The server's limit on a comment, in Unicode code points after
+    /// trimming, as it counts them.
+    public static let maxLength = 4000
 }

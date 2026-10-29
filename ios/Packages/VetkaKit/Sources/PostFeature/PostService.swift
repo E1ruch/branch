@@ -10,6 +10,7 @@ public protocol PostService: Sendable {
     func thread(postID: Int64, sort: API.CommentSort, cursor: String?) async throws(APIError) -> Page<ThreadItem>
     func replies(commentID: Int64, sort: API.CommentSort, cursor: String?) async throws(APIError) -> Page<ThreadItem>
     func createComment(postID: Int64, parentID: Int64?, body: String) async throws(APIError) -> Comment
+    func editComment(_ id: Int64, body: String) async throws(APIError) -> Comment
     func voteComment(_ id: Int64, value: Int) async throws(APIError) -> VoteResult
     func storyParts(postID: Int64) async throws(APIError) -> [StoryPart]
 }
@@ -39,6 +40,10 @@ public struct LivePostService: PostService {
 
     public func createComment(postID: Int64, parentID: Int64?, body: String) async throws(APIError) -> Comment {
         try await client.send(API.createComment(postID: postID, parentID: parentID, body: body))
+    }
+
+    public func editComment(_ id: Int64, body: String) async throws(APIError) -> Comment {
+        try await client.send(API.editComment(id, body: body))
     }
 
     public func voteComment(_ id: Int64, value: Int) async throws(APIError) -> VoteResult {

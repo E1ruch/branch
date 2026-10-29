@@ -201,6 +201,11 @@ public enum API {
     }
 
     /// A top-level comment (parentID nil) or a reply.
+    /// Your own comment's new text; the same text again changes nothing.
+    public static func editComment(_ id: Int64, body: String) -> Endpoint<Comment> {
+        Endpoint(.patch, "/v1/comments/\(id)", body: ["body": body], auth: .required)
+    }
+
     public static func createComment(postID: Int64, parentID: Int64?, body: String) -> Endpoint<Comment> {
         Endpoint(.post, "/v1/posts/\(postID)/comments", body: NewComment(body: body, parentId: parentID), auth: .required)
     }

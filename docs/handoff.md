@@ -77,7 +77,7 @@ make test          # TEST_DATABASE_URL уже задан в Makefile; кажды
   (или попросить пользователя сделать `sudo xcode-select -s …`; без этого не
   работает и панель симулятора Claude).
 - Тесты пакета: `cd ios/Packages/VetkaKit && xcodebuild test -scheme VetkaKit
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` (99 тестов, Swift Testing).
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` (101 тест, Swift Testing).
 - Приложение и UI-тесты: `cd ios && xcodebuild test -project branch.xcodeproj
   -scheme branch -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
   -parallel-testing-enabled NO -only-testing:branchUITests/branchUITests/…`.
@@ -121,7 +121,9 @@ make test          # TEST_DATABASE_URL уже задан в Makefile; кажды
 - Посты и ленты: hot/new общая, по сообществу, подписки (LATERAL); превью 600 символов.
 - Голоса: PUT состояния (−1/0/1), outbox `vote_deltas` + воркер, карма.
 - Комментарии: дерево (топ-8 ответов на родителя, 5 уровней, лимит 400),
-  заглушки `more`/`continue`, надгробия, голоса за комментарии.
+  заглушки `more`/`continue`, надгробия, голоса за комментарии. Длина —
+  до 4000 символов (сервис; CHECK в базе остался 10000 как страховка),
+  правка — 30 за 10 минут, та же строка не ставит «изменено».
 
 iOS:
 
@@ -258,8 +260,12 @@ iOS:
 
 Макет и `docs/design-system.md` — ориентир. Шаги согласованы с пользователем:
 
-2. ~~Экран поста~~ — сделан (см. выше). Не проверено на iPhone; правка и
-   удаление своих комментариев (бэкенд есть) — ещё нет.
+2. ~~Экран поста~~ — сделан (см. выше). Не проверено на iPhone. Правка
+   своего комментария есть: «Изменить» в меню → поле ввода в режиме
+   «Редактирование» (галочка, ✕), оптимистично, при ошибке текст
+   возвращается в поле. Счётчик символов над кнопкой — с 3200 из 4000,
+   за лимитом красный и отправка выключена. Удаления своего комментария
+   в приложении ещё нет (бэкенд есть).
 3. ~~Создание поста~~ — сделано, плюс истории и WYSIWYG-markdown. Не
    проверено на iPhone. Новый пост не появляется в «Новом» до
    pull-to-refresh. Переход между частями истории кладёт экран в стек.
