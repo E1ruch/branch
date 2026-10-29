@@ -32,6 +32,8 @@ type Deps struct {
 	Search      *search.Service
 	// Caps search requests; nil (tests) leaves them uncapped.
 	SearchLimiter Limiter
+	// Caps follow changes per account; nil leaves them uncapped.
+	FollowLimiter Limiter
 
 	TelegramBot   string // bot username for the login widget; empty disables it
 	TelegramToken string // signs fake logins
@@ -48,6 +50,7 @@ func NewRouter(d Deps) http.Handler {
 	commentH := &commentHandlers{svc: d.Comments, log: d.Logger}
 	searchH := &searchHandlers{svc: d.Search, users: d.Users, posts: postH, log: d.Logger}
 	searchLimit := limitSearch(d.SearchLimiter, d.Logger)
+	followLimit := limitFollows(d.FollowLimiter, d.Logger)
 	userH := &userHandlers{users: d.Users, posts: postH, comments: d.Comments, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, botToken: d.TelegramToken, fake: d.TelegramFake,
 		publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
@@ -103,8 +106,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/comments", userH.userComments)
 				r.Get("/followers", userH.followers)
 				r.Get("/following", userH.following)
-				r.With(requireAuth).Put("/follow", userH.follow)
-				r.With(requireAuth).Delete("/follow", userH.unfollow)
+				r.With(requireAuth, followLimit).Put("/follow", userH.follow)
+				r.With(requireAuth, followLimit).Delete("/follow", userH.unfollow)
 			})
 			r.Get("/usernames/{username}/availability", userH.usernameAvailability)
 

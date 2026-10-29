@@ -154,3 +154,24 @@ func TestProfileAPI(t *testing.T) {
 		t.Errorf("post author after delete: %v", body["author"])
 	}
 }
+
+func TestFollowLimit(t *testing.T) {
+	db := testdb.New(t)
+	_, key, _ := ed25519.GenerateKey(nil)
+	issuer := auth.NewIssuer(key, time.Hour)
+	c := client{t, NewRouter(Deps{
+		Logger: discard, RequestTimeout: 5 * time.Second,
+		Auth:  auth.NewService(db, issuer, nil, nil, auth.Config{}, discard),
+		Users: user.NewStore(db), FollowLimiter: denyAll{},
+	})}
+	me, _, _ := issuer.Issue(testdb.CreateUser(t, db, "ivan"))
+	testdb.CreateUser(t, db, "petr")
+	for _, method := range []string{"PUT", "DELETE"} {
+		if status, body := c.call(method, "/v1/users/petr/follow", me, nil); status != http.StatusTooManyRequests || errCode(body) != "rate_limited" {
+			t.Errorf("%s over the limit: %d %v", method, status, body)
+		}
+	}
+	if _, body := c.call("GET", "/v1/users/petr", "", nil); body["followers_count"] != 0.0 {
+		t.Errorf("a refused follow still counted: %v", body)
+	}
+}

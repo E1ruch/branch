@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -124,6 +125,43 @@ func (h *userHandlers) unfollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: false})
+}
+
+// Follow limits: the app sends only the final state of a burst of taps, so
+// a person stays far below these; a script mass-following or flapping a
+// follow on someone popular (every change rewrites their counter row) does not.
+const (
+	followsPerMinute = 60
+	followsPerDay    = 400
+)
+
+// limitFollows caps follow changes per account. A broken limiter lets
+// them through: following is not worth an outage.
+func limitFollows(l Limiter, log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if l == nil {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := "follow:user:" + strconv.FormatInt(viewer(r), 10)
+			for _, window := range []struct {
+				limit  int
+				period time.Duration
+				name   string
+			}{{followsPerMinute, time.Minute, ":m"}, {followsPerDay, 24 * time.Hour, ":d"}} {
+				ok, err := l.Allow(r.Context(), key+window.name, window.limit, window.period)
+				if err != nil {
+					log.WarnContext(r.Context(), "follow limiter failed", slog.Any("err", err))
+					break
+				}
+				if !ok {
+					writeError(w, http.StatusTooManyRequests, "rate_limited", "too many follows, try again later")
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // followers: GET /v1/users/{username}/followers, the latest first.

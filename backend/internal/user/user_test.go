@@ -163,3 +163,68 @@ func TestSearch(t *testing.T) {
 		t.Errorf("two letters matched: %+v", got)
 	}
 }
+
+// The follow counters change once per statement: many rows at once must
+// count per person, both ways, and an account with a crowd of followers
+// must delete in one quick statement.
+func TestFollowCountersInBulk(t *testing.T) {
+	db := testdb.New(t)
+	s, ctx := NewStore(db), context.Background()
+	star := testdb.CreateUser(t, db, "star")
+	fan := testdb.CreateUser(t, db, "fan")
+	const crowd = 2000
+	if _, err := db.Exec(ctx, `INSERT INTO users (username) SELECT 'user_' || g FROM generate_series(1, $1) g`, crowd); err != nil {
+		t.Fatal(err)
+	}
+	// One statement: the crowd follows star and fan follows the crowd.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO user_follows (follower_id, followee_id)
+		SELECT id, $1 FROM users WHERE username LIKE 'user\_%'
+		UNION ALL
+		SELECT $2, id FROM users WHERE username LIKE 'user\_%'`, star, fan); err != nil {
+		t.Fatal(err)
+	}
+	counts := func(id int64) (followers, following int) {
+		u, err := s.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u.FollowersCount, u.FollowingCount
+	}
+	if f, _ := counts(star); f != crowd {
+		t.Errorf("star followers = %d, want %d", f, crowd)
+	}
+	if _, g := counts(fan); g != crowd {
+		t.Errorf("fan following = %d, want %d", g, crowd)
+	}
+	var someone int64
+	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE username = 'user_7'`).Scan(&someone); err != nil {
+		t.Fatal(err)
+	}
+	if f, g := counts(someone); f != 1 || g != 1 {
+		t.Errorf("one of the crowd: followers %d, following %d, want 1 and 1", f, g)
+	}
+	if _, err := s.Follow(ctx, someone, "fan"); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := counts(fan); f != 1 {
+		t.Errorf("single follow after the bulk: fan followers = %d", f)
+	}
+
+	start := time.Now()
+	if err := s.Delete(ctx, star); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("deleting an account with %d followers took %v", crowd, took)
+	}
+	if f, g := counts(someone); f != 1 || g != 1 { // lost star, kept fan
+		t.Errorf("after star left: followers %d, following %d, want 1 and 1", f, g)
+	}
+	if err := s.Delete(ctx, fan); err != nil {
+		t.Fatal(err)
+	}
+	if f, g := counts(someone); f != 0 || g != 0 {
+		t.Errorf("after fan left: followers %d, following %d, want 0 and 0", f, g)
+	}
+}
