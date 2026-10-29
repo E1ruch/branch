@@ -99,6 +99,38 @@ func TestProfileAPI(t *testing.T) {
 	}
 	c.call("PUT", "/v1/users/ivan/follow", other, nil)
 
+	// Lists: the latest follow first, each row with the viewer's own follow.
+	third, _, _ := issuer.Issue(testdb.CreateUser(t, db, "third_one"))
+	c.call("PUT", "/v1/users/ivan/follow", third, nil)
+	c.call("PUT", "/v1/users/third_one/follow", me, nil)
+	names := func(body map[string]any) (out []string) {
+		for _, it := range body["items"].([]any) {
+			out = append(out, it.(map[string]any)["username"].(string))
+		}
+		return out
+	}
+	_, body = c.call("GET", "/v1/users/ivan/followers", me, nil)
+	if got := names(body); len(got) != 2 || got[0] != "third_one" || got[1] != "taken_name" {
+		t.Errorf("followers: %v", got)
+	}
+	if first := body["items"].([]any)[0].(map[string]any); first["is_following"] != true {
+		t.Errorf("followers row is_following for the viewer: %v", first)
+	}
+	_, body = c.call("GET", "/v1/users/ivan/followers?limit=1", "", nil)
+	if got := names(body); len(got) != 1 || got[0] != "third_one" || body["next_cursor"] == nil {
+		t.Fatalf("followers page 1: %v", body)
+	}
+	_, body = c.call("GET", "/v1/users/ivan/followers?limit=1&cursor="+body["next_cursor"].(string), "", nil)
+	if got := names(body); len(got) != 1 || got[0] != "taken_name" {
+		t.Errorf("followers page 2: %v", got)
+	}
+	_, body = c.call("GET", "/v1/users/ivan/following", "", nil)
+	if got := names(body); len(got) != 1 || got[0] != "third_one" {
+		t.Errorf("following: %v", got)
+	}
+	c.call("DELETE", "/v1/users/ivan/follow", third, nil)
+	c.call("DELETE", "/v1/users/third_one/follow", me, nil)
+
 	_, p2 := c.call("POST", "/v1/communities/news/posts", me, map[string]any{"title": "Второй"})
 	c.call("DELETE", fmt.Sprintf("/v1/posts/%d", int64(p2["id"].(float64))), me, nil)
 	if _, body := c.call("GET", "/v1/me", me, nil); body["posts_count"] != 1.0 {

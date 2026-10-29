@@ -4,6 +4,7 @@ package user
 import (
 	"context"
 	"errors"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -58,9 +59,14 @@ const Columns = `id, username, display_name, bio, post_karma, comment_karma, cre
 	username_changed_at + interval '30 days'`
 
 func Scan(row pgx.Row) (User, error) {
+	return scan(row)
+}
+
+// scan reads Columns, then the extra destinations a query selects after them.
+func scan(row pgx.Row, extra ...any) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.PostKarma, &u.CommentKarma, &u.CreatedAt,
-		&u.PostsCount, &u.FollowersCount, &u.FollowingCount, &u.UsernameChangeableAt)
+	err := row.Scan(append([]any{&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.PostKarma, &u.CommentKarma,
+		&u.CreatedAt, &u.PostsCount, &u.FollowersCount, &u.FollowingCount, &u.UsernameChangeableAt}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -304,6 +310,68 @@ func (s *Store) IsFollowing(ctx context.Context, followerID, followeeID int64) (
 	err := s.db.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM user_follows WHERE follower_id = $1 AND followee_id = $2)`, followerID, followeeID).Scan(&ok)
 	return ok, err
+}
+
+// Listed is a person in someone's followers or following list.
+type Listed struct {
+	User
+	// Whether the viewer follows them, for the button in the row.
+	IsFollowing bool
+	// When the follow in this list began: the list's order and cursor.
+	FollowedAt time.Time
+}
+
+// FollowCursor is the last row of the previous page.
+type FollowCursor struct {
+	At time.Time `json:"t"`
+	ID int64     `json:"id"`
+}
+
+// Followers lists who follows userID, the latest first.
+func (s *Store) Followers(ctx context.Context, userID, viewer int64, after *FollowCursor, limit int) ([]Listed, error) {
+	return s.followList(ctx, "follower_id", "followee_id", userID, viewer, after, limit)
+}
+
+// Following lists whom userID follows, the latest first.
+func (s *Store) Following(ctx context.Context, userID, viewer int64, after *FollowCursor, limit int) ([]Listed, error) {
+	return s.followList(ctx, "followee_id", "follower_id", userID, viewer, after, limit)
+}
+
+// followList pages user_follows by (created_at, other side's id) on the
+// index for `owner`, then joins only that page with users. Deleted
+// accounts have no follows left, so pages are full.
+func (s *Store) followList(ctx context.Context, listed, owner string, userID, viewer int64,
+	after *FollowCursor, limit int) ([]Listed, error) {
+	cur := FollowCursor{At: time.Now().Add(time.Hour), ID: math.MaxInt64}
+	if after != nil {
+		cur = *after
+	}
+	rows, err := s.db.Query(ctx, `
+		WITH page AS (
+			SELECT `+listed+` AS id, created_at AS followed_at FROM user_follows
+			WHERE `+owner+` = $1 AND (created_at, `+listed+`) < ($2, $3)
+			ORDER BY created_at DESC, `+listed+` DESC
+			LIMIT $4
+		)
+		SELECT `+Columns+`, page.followed_at,
+			EXISTS (SELECT 1 FROM user_follows v WHERE v.follower_id = $5 AND v.followee_id = users.id)
+		FROM users JOIN page USING (id)
+		WHERE deleted_at IS NULL
+		ORDER BY page.followed_at DESC, id DESC`, userID, cur.At, cur.ID, limit, viewer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Listed{}
+	for rows.Next() {
+		var l Listed
+		l.User, err = scan(rows, &l.FollowedAt, &l.IsFollowing)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
 }
 
 // Delete closes the account, as App Store rules require the app to offer.

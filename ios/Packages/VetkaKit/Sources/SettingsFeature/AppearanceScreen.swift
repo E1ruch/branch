@@ -22,7 +22,7 @@ public struct AppearanceScreen: View {
                     card(.dark)
                 }
                 .padding(.vertical, Spacing.m)
-                .settingsRow()
+                .groupedRow()
             } header: {
                 Text("Тема")
             }
@@ -38,13 +38,13 @@ public struct AppearanceScreen: View {
                     SettingsLabel(title: "Как в системе", systemImage: "iphone", color: Palette.info)
                 }
                 .tint(.vetkaBrand)
-                .settingsRow()
+                .groupedRow()
                 .accessibilityIdentifier("appearance.system")
             } footer: {
                 Text("Тема будет меняться вместе с настройкой iPhone — например, тёмная вечером.")
             }
         }
-        .settingsListStyle()
+        .groupedListStyle()
         .navigationTitle("Оформление")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.vetkaBackground, for: .navigationBar)

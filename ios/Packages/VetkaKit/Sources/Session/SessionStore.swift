@@ -63,6 +63,14 @@ public final class SessionStore {
         me = updated
     }
 
+    /// Deletes the account on the server, then ends the session here. On
+    /// an error nothing changes and the caller shows it.
+    public func deleteAccount() async throws(APIError) {
+        _ = try await client.send(API.deleteMe())
+        await tokens.clear()
+        didEnd()
+    }
+
     public func signOut() async {
         if let refresh = await tokens.refreshToken {
             // Best effort: revoke on the server, but never block signing out.

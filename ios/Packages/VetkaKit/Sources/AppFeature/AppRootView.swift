@@ -203,6 +203,15 @@ struct RouteView: View {
             }
         case .appearance:
             AppearanceScreen(theme: app.theme)
+        case .privacy:
+            PrivacyScreen(username: app.session.me?.username) { () throws(APIError) in
+                try await app.session.deleteAccount()
+                // The profile tab's root is the sign-in invitation now.
+                router.popToRoot(.profile)
+            }
+        case let .follows(username, list):
+            FollowsScreen(username: username, list: list, profiles: app.profiles, client: app.client,
+                          myUsername: app.session.me?.username)
         case .editProfile:
             if let me = app.session.me {
                 EditProfileScreen(model: EditProfileModel(me: me, client: app.client)) { app.session.didUpdate($0) }

@@ -48,5 +48,6 @@ let package = Package(
         .testTarget(name: "PostFeatureTests", dependencies: ["PostFeature", "Stores"]),
         .testTarget(name: "ComposeFeatureTests", dependencies: ["ComposeFeature"]),
         .testTarget(name: "SettingsFeatureTests", dependencies: ["SettingsFeature", "Stores"]),
+        .testTarget(name: "ProfileFeatureTests", dependencies: ["ProfileFeature", "Stores"]),
     ]
 )

@@ -2,8 +2,8 @@ import Core
 import DesignSystem
 import SwiftUI
 
-/// Настройки, opened from the gear on your profile: who you are (opens
-/// profile editing), how the app looks, and signing out.
+/// Настройки, opened from the gear on your profile: who you are, profile
+/// editing, how the app looks, privacy (deleting the account), signing out.
 public struct SettingsScreen: View {
     private let me: Me?
     private let theme: ThemeStore
@@ -42,14 +42,19 @@ public struct SettingsScreen: View {
                 NavigationLink(value: Route.editProfile) {
                     SettingsLabel(title: "Изменить профиль", systemImage: "person.fill", color: Palette.info)
                 }
-                .settingsRow()
+                .groupedRow()
                 .accessibilityIdentifier("settings.editProfile")
                 NavigationLink(value: Route.appearance) {
                     SettingsLabel(title: "Оформление", systemImage: "paintbrush.fill", color: Palette.reward,
                                   value: theme.theme.title)
                 }
-                .settingsRow()
+                .groupedRow()
                 .accessibilityIdentifier("settings.appearance")
+                NavigationLink(value: Route.privacy) {
+                    SettingsLabel(title: "Конфиденциальность", systemImage: "lock.fill", color: Palette.iconSecondary)
+                }
+                .groupedRow()
+                .accessibilityIdentifier("settings.privacy")
             }
 
             Section {
@@ -59,7 +64,7 @@ public struct SettingsScreen: View {
                     SettingsLabel(title: "Выйти", systemImage: "rectangle.portrait.and.arrow.right",
                                   color: Palette.destructive, titleColor: .vetkaDanger)
                 }
-                .settingsRow()
+                .groupedRow()
                 .accessibilityIdentifier("settings.signOut")
             } footer: {
                 Text(Self.version)
@@ -67,7 +72,7 @@ public struct SettingsScreen: View {
                     .padding(.top, Spacing.xl)
             }
         }
-        .settingsListStyle()
+        .groupedListStyle()
         .navigationTitle("Настройки")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.vetkaBackground, for: .navigationBar)

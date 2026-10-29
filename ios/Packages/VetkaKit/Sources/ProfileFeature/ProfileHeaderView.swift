@@ -11,6 +11,8 @@ import UIKit
 /// name's and the counters' places so nothing jumps when they arrive.
 final class ProfileHeaderView: UIView, PagerHeader {
     var onFollow: (() -> Void)?
+    /// A tap on "подписчики" or "подписки".
+    var onOpenList: ((FollowList) -> Void)?
 
     private let avatar = AvatarLabel()
     private let nameLabel = UILabel()
@@ -58,11 +60,12 @@ final class ProfileHeaderView: UIView, PagerHeader {
         // Карма is one number with its split one tap away: posts and
         // comments earn it differently, and neither is a score of the person.
         karma.isKarma = true
-        // Lists of people come with their own screen; until then the
-        // counters only show.
-        for stat in [posts, following, followers] {
-            stat.isUserInteractionEnabled = false
-        }
+        // Публикации are the list right below; people open their own screen.
+        posts.isUserInteractionEnabled = false
+        followers.addAction(UIAction { [weak self] _ in self?.onOpenList?(.followers) }, for: .touchUpInside)
+        following.addAction(UIAction { [weak self] _ in self?.onOpenList?(.following) }, for: .touchUpInside)
+        followers.accessibilityIdentifier = "profile.followers"
+        following.accessibilityIdentifier = "profile.following"
         let stats = UIStackView(arrangedSubviews: [posts, karma, following, followers])
         stats.distribution = .fillEqually
         stats.alignment = .top
@@ -173,9 +176,15 @@ final class ProfileHeaderView: UIView, PagerHeader {
 }
 
 /// One counter: the number over its word. The karma one opens a menu with
-/// the split. A control, so the pager's overlay lets its taps through.
+/// the split; the people ones open their lists. A control, so the pager's
+/// overlay lets its taps through.
 private final class StatView: UIControl {
-    var isKarma = false
+    var isKarma = false {
+        didSet {
+            isContextMenuInteractionEnabled = isKarma
+            showsMenuAsPrimaryAction = isKarma
+        }
+    }
     var menu: UIMenu?
 
     private let numberLabel = UILabel()
@@ -217,8 +226,6 @@ private final class StatView: UIControl {
             skeleton.heightAnchor.constraint(equalToConstant: 28),
         ])
         isAccessibilityElement = true
-        isContextMenuInteractionEnabled = true
-        showsMenuAsPrimaryAction = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -246,7 +253,7 @@ private final class StatView: UIControl {
         numberLabel.attributedText = number
         textLabel.text = label
         accessibilityLabel = "\(value.formatted()) \(label)"
-        accessibilityTraits = isKarma ? .button : .staticText
+        accessibilityTraits = isUserInteractionEnabled ? .button : .staticText
         accessibilityHint = isKarma ? "Показывает карму за посты и за комментарии" : nil
     }
 

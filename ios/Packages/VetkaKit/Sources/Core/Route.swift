@@ -10,10 +10,18 @@ public enum Route: Hashable, Sendable {
     case commentThread(commentID: Int64)
     /// Ответы, упоминания, реакции: opened from the bell in the feed header.
     case activity
+    /// Подписчики or подписки of a person, from the counters on a profile.
+    case follows(username: String, list: FollowList)
     /// Настройки, from the gear on your profile, and their pages.
     case settings
     case appearance
     case editProfile
+    case privacy
+}
+
+/// The two lists of people around a profile.
+public enum FollowList: Hashable, Sendable {
+    case followers, following
 }
 
 extension Route {

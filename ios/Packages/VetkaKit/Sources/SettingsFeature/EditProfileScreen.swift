@@ -35,7 +35,7 @@ public struct EditProfileScreen: View {
                     .focused($focus, equals: .name)
                     .submitLabel(.next)
                     .onSubmit { focus = .bio }
-                    .settingsRow()
+                    .groupedRow()
                     .accessibilityIdentifier("editProfile.name")
             } footer: {
                 limitNote("Так вас видят в постах и комментариях. Можно по-русски.",
@@ -46,7 +46,7 @@ public struct EditProfileScreen: View {
                 TextField("О себе", text: $model.bio, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($focus, equals: .bio)
-                    .settingsRow()
+                    .groupedRow()
                     .accessibilityIdentifier("editProfile.bio")
             } footer: {
                 limitNote("Пара слов о себе: чем увлекаетесь, откуда вы.",
@@ -64,7 +64,7 @@ public struct EditProfileScreen: View {
                         .disabled(model.usernameLockedUntil != nil)
                         .accessibilityIdentifier("editProfile.username")
                 }
-                .settingsRow()
+                .groupedRow()
             } header: {
                 Text("Ник")
             } footer: {
@@ -76,11 +76,11 @@ public struct EditProfileScreen: View {
                 Section {
                     Label(error, systemImage: "exclamationmark.circle.fill")
                         .foregroundStyle(Color.vetkaDanger)
-                        .settingsRow()
+                        .groupedRow()
                 }
             }
         }
-        .settingsListStyle()
+        .groupedListStyle()
         .scrollDismissesKeyboard(.interactively)
         .animation(.vetkaSnappy, value: model.error)
         .navigationTitle("Изменить профиль")

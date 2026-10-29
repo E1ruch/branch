@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -123,6 +124,55 @@ func (h *userHandlers) unfollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: false})
+}
+
+// followers: GET /v1/users/{username}/followers, the latest first.
+func (h *userHandlers) followers(w http.ResponseWriter, r *http.Request) {
+	h.followList(w, r, h.users.Followers)
+}
+
+// following: GET /v1/users/{username}/following, the latest first.
+func (h *userHandlers) following(w http.ResponseWriter, r *http.Request) {
+	h.followList(w, r, h.users.Following)
+}
+
+type followLister func(ctx context.Context, userID, viewer int64, after *user.FollowCursor, limit int) ([]user.Listed, error)
+
+func (h *userHandlers) followList(w http.ResponseWriter, r *http.Request, list followLister) {
+	u, err := h.users.GetByUsername(r.Context(), chi.URLParam(r, "username"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	limit, err := parseLimit(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	var cur user.FollowCursor
+	has, err := decodeCursor(r, &cur)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	var after *user.FollowCursor
+	if has {
+		after = &cur
+	}
+	items, err := list(r.Context(), u.ID, viewer(r), after, limit)
+	if err != nil {
+		internalError(w, r, h.log, err)
+		return
+	}
+	resp := page[profileDTO]{Items: make([]profileDTO, len(items))}
+	for i, l := range items {
+		resp.Items[i] = profileDTO{userDTO: toUserDTO(l.User), IsFollowing: l.IsFollowing}
+	}
+	if len(items) == limit {
+		last := items[len(items)-1]
+		resp.NextCursor = encodeCursor(user.FollowCursor{At: last.FollowedAt, ID: last.ID})
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *userHandlers) writeProfile(w http.ResponseWriter, r *http.Request, u user.User) {

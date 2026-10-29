@@ -84,6 +84,11 @@ public enum API {
         Endpoint(.patch, "/v1/me", body: ProfileUpdate(username: username, displayName: displayName, bio: bio), auth: .required)
     }
 
+    /// Closes the account for good (App Store requires the app to offer it).
+    public static func deleteMe() -> Endpoint<NoContent> {
+        Endpoint(.delete, "/v1/me", auth: .required)
+    }
+
     public static func usernameAvailability(_ username: String) -> Endpoint<UsernameAvailability> {
         Endpoint(.get, "/v1/usernames/\(username)/availability", auth: .none)
     }
@@ -213,6 +218,16 @@ public enum API {
 
     public static func user(_ username: String) -> Endpoint<Profile> {
         Endpoint(.get, "/v1/users/\(username)")
+    }
+
+    /// Who follows the user, the latest first; rows carry the viewer's own follow.
+    public static func followers(_ username: String, cursor: String? = nil) -> Endpoint<Page<Profile>> {
+        Endpoint(.get, "/v1/users/\(username)/followers", query: page(cursor))
+    }
+
+    /// Whom the user follows, the latest first.
+    public static func following(_ username: String, cursor: String? = nil) -> Endpoint<Page<Profile>> {
+        Endpoint(.get, "/v1/users/\(username)/following", query: page(cursor))
     }
 
     /// Sets the follow to a state (PUT follows, DELETE stops), like

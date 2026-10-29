@@ -156,6 +156,7 @@ final class ProfileViewController: UIViewController {
         self.isSignedIn = isSignedIn
         header = ProfileHeaderView(username: username, isMe: isMe)
         header.onFollow = follow
+        header.onOpenList = { list in open(.follows(username: username, list: list)) }
         let model = FeedModel(source: .user(username: username), service: service, store: posts,
                               isSignedIn: isSignedIn, requestSignIn: requestSignIn)
         feed = FeedViewController(model: model, open: open, requestSignIn: requestSignIn)
