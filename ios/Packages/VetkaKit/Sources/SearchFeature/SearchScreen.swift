@@ -5,8 +5,8 @@ import Networking
 import Stores
 import SwiftUI
 
-/// The search tab: the field in the navigation bar, filter chips under it;
-/// popular queries and recent results while nothing is typed.
+/// The search tab: the search bar on top, filter chips under it; popular
+/// queries and recent results while nothing is typed.
 public struct SearchScreen: View {
     @State private var model: SearchModel
     private let isSignedIn: Bool
@@ -27,19 +27,18 @@ public struct SearchScreen: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            SearchBar(text: bindable.query, focused: $focused, onSubmit: model.submit)
+                .padding(.horizontal, Spacing.l)
+                .padding(.top, Spacing.s)
             FilterChips(selection: bindable.filter)
             content
                 .frame(maxHeight: .infinity)
         }
         .background(Color.vetkaSurface)
         .navigationTitle("Поиск")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                SearchField(text: bindable.query, focused: $focused, submit: model.submit)
-            }
-        }
+        // The bar would only hold the title: the search bar takes its place,
+        // as in the design. Screens opened from here bring their own bar.
+        .toolbar(.hidden, for: .navigationBar)
         .task { await model.loadPopular() }
         .task(id: model.query) { await model.search() }
         .task(id: focusRequest) {
@@ -83,40 +82,6 @@ public struct SearchScreen: View {
 }
 
 // MARK: - Field and filters
-
-private struct SearchField: View {
-    @Binding var text: String
-    var focused: FocusState<Bool>.Binding
-    let submit: () -> Void
-
-    var body: some View {
-        HStack(spacing: Spacing.s) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Color.vetkaSecondaryText)
-            TextField("Поиск", text: $text)
-                .focused(focused)
-                .submitLabel(.search)
-                .onSubmit(submit)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .accessibilityIdentifier("search.field")
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Color(uiColor: Palette.iconSecondary))
-                }
-                .accessibilityLabel("Очистить")
-            }
-        }
-        .font(.body)
-        .padding(.horizontal, Spacing.m)
-        .frame(height: 38)
-        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Color.vetkaField))
-        .frame(maxWidth: .infinity)
-    }
-}
 
 /// Всё · Сообщества · Пользователи · Посты: separate capsules, the chosen
 /// one filled green.

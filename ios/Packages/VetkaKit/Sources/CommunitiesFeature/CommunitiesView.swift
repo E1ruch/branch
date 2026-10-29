@@ -12,6 +12,7 @@ public struct CommunitiesView: View {
     @State private var model: CommunitiesModel
     private let isSignedIn: Bool
     private let requestSignIn: () -> Void
+    @FocusState private var searchFocused: Bool
     // `@State` holds an @Observable model; bindings need @Bindable.
     private var bindable: Bindable<CommunitiesModel> { Bindable(model) }
 
@@ -26,7 +27,14 @@ public struct CommunitiesView: View {
             .background(Color.vetkaBackground)
             .navigationTitle("Сообщества")
             .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
-            .searchable(text: bindable.query, prompt: "Найти сообщество")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // No padding below: the pinned tabs bring their own.
+                SearchBar(text: bindable.query, prompt: "Найти сообщество", focused: $searchFocused)
+                    .padding(.horizontal, Spacing.l)
+                    .padding(.top, Spacing.s)
+                    .background(Color.vetkaBackground)
+            }
+            .scrollDismissesKeyboard(.immediately)
             // Again on sign-in or out: subscriptions belong to the account.
             .task(id: isSignedIn) { await model.load(signedIn: isSignedIn) }
             .task(id: model.query) { await model.search() }

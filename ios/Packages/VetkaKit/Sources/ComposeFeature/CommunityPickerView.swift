@@ -8,6 +8,7 @@ struct CommunityPickerView: View {
     @State private var model: CommunityPickerModel
     private let selected: String?
     private let onPick: (PickedCommunity) -> Void
+    @FocusState private var searchFocused: Bool
 
     init(service: any ComposeService, selected: String?, onPick: @escaping (PickedCommunity) -> Void) {
         _model = State(initialValue: CommunityPickerModel(service: service))
@@ -20,8 +21,13 @@ struct CommunityPickerView: View {
         content
             .navigationTitle("Сообщество")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Найти сообщество")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                SearchBar(text: $model.query, prompt: "Найти сообщество", focused: $searchFocused)
+                    .padding(.horizontal, Spacing.l)
+                    .padding(.vertical, Spacing.s)
+                    .background(.bar)
+            }
+            .scrollDismissesKeyboard(.immediately)
             .task { await model.load() }
             .task(id: model.query) { await model.search() }
     }

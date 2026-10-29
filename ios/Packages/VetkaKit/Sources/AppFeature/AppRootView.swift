@@ -144,7 +144,10 @@ public struct AppRootView: View {
     private func stack<Root: View>(_ tab: Tab, @ViewBuilder root: () -> Root) -> some View {
         NavigationStack(path: router.path(for: tab)) {
             root()
-                .navigationDestination(for: Route.self) { RouteView(route: $0, app: app, router: router) }
+                .navigationDestination(for: Route.self) {
+                    RouteView(route: $0, app: app, router: router)
+                        .vetkaBackButton()
+                }
         }
     }
 }

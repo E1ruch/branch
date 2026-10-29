@@ -83,6 +83,7 @@ struct PublishSettingsView: View {
                     isPickingCommunity = false
                     Haptics.selection()
                 }
+                .vetkaBackButton()
             }
             .navigationDestination(isPresented: $isPickingStory) {
                 StoryPickerView(service: service, selected: model.draft.continues?.postID) { post in
@@ -90,6 +91,7 @@ struct PublishSettingsView: View {
                     isPickingStory = false
                     Haptics.selection()
                 }
+                .vetkaBackButton()
             }
             .animation(.vetkaSnappy, value: model.draft.continues)
             .animation(.vetkaSnappy, value: model.draft.community)
