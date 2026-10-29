@@ -253,7 +253,8 @@ final class ComposerView: UIView, UITextViewDelegate {
         showError(error)
     }
 
-    private func showError(_ error: String) {
+    /// A short error over the field (a delete that failed, for one).
+    func showError(_ error: String) {
         errorLabel.text = error
         setBar(errorHeight, to: ceil(errorLabel.font.lineHeight) + 4)
     }

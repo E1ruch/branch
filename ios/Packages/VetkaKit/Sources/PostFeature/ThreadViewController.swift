@@ -14,6 +14,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     var onTitle: ((String) -> Void)?
 
     private var collectionView: UICollectionView!
+    /// The long-press menu while it is open: the finger's moves go to it.
+    private var actionMenu: ActionMenu?
     private var dataSource: UICollectionViewDiffableDataSource<Int, Row>!
     private let composer = ComposerView()
     private let composerBackground = UIView()
@@ -113,6 +115,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             composer.restoreEdit(id, text: text, original: model.comments[id]?.body ?? "",
                                  error: Self.editErrorText(error))
         }
+        model.onDeleteFailed = { [weak self] error in
+            self?.composer.showError(Self.deleteErrorText(error))
+        }
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(longPressed))
+        press.minimumPressDuration = 0.35
+        collectionView.addGestureRecognizer(press)
         model.onSendFailed = { [weak self] text, parentID, error in
             guard let self else { return }
             composer.restore(text: text, replyTo: parentID,
@@ -169,7 +177,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         case .post:
             let cell = cv.dequeueReusableCell(withReuseIdentifier: PostDetailCell.reuseID, for: indexPath) as! PostDetailCell
             cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts,
-                           canContinue: model.canContinueStory, animateVote: false)
+                           animateVote: false)
             cell.onAction = { [weak self] action in self?.handle(action) }
             return cell
         case .story:
@@ -267,8 +275,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                       let cell = collectionView.cellForItem(at: indexPath) else { continue }
                 switch (row, cell) {
                 case let (.post, cell as PostDetailCell):
-                    cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts,
-                                   canContinue: model.canContinueStory, animateVote: true)
+                    cell.configure(post: model.post, layout: model.postLayout, fonts: model.fonts, animateVote: true)
                 case let (.story, cell as StoryCell):
                     configure(cell)
                 case let (.comment(id), cell as CommentCell):
@@ -353,7 +360,32 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             if let author = post.author { open(.user(username: author.username)) }
         case .continueStory:
             continueStory(post)
+        case let .more(button):
+            postMenu(post).present(fromButton: button)
         }
+    }
+
+    /// The post's "⋯": the next story part (its author, on the last part),
+    /// sharing, then where it lives and who wrote it.
+    private func postMenu(_ post: Post) -> ActionMenu {
+        var story: [ActionMenuItem] = []
+        if model.canContinueStory {
+            story.append(ActionMenuItem("Добавить следующую часть", systemImage: "book.pages") { [weak self] in
+                self?.handle(.continueStory)
+            })
+        }
+        var places = [ActionMenuItem(post.community.title, systemImage: "square.grid.2x2") { [weak self] in
+            self?.handle(.openCommunity)
+        }]
+        if post.author != nil {
+            places.append(ActionMenuItem("Профиль автора", systemImage: "person") { [weak self] in self?.handle(.openAuthor) })
+        }
+        return ActionMenu(votes: nil, groups: [
+            story,
+            [ActionMenuItem("Поделиться", systemImage: "square.and.arrow.up") { [weak self] in self?.handle(.share) },
+             ActionMenuItem("Скопировать ссылку", systemImage: "link") { [weak self] in self?.handle(.copyLink) }],
+            places,
+        ])
     }
 
     private func reply(to id: Int64) {
@@ -408,6 +440,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         guard let indexPath = dataSource.indexPath(for: row) else { return }
         collectionView.layoutIfNeeded()
         collectionView.scrollToItem(at: indexPath, at: position, animated: true)
+    }
+
+    static func deleteErrorText(_ error: APIError) -> String {
+        if case .transport = error { return "Нет соединения — комментарий не удалён." }
+        return "Не удалось удалить комментарий. Попробуйте ещё раз."
     }
 
     static func editErrorText(_ error: APIError) -> String {
@@ -481,51 +518,84 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
     }
 
-    /// Long press on a comment: reply, votes, parent, edit (yours), copy, author.
-    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
-                        point: CGPoint) -> UIContextMenuConfiguration? {
-        guard let indexPath = indexPaths.first, case let .comment(id) = dataSource.itemIdentifier(for: indexPath),
-              let comment = model.comments[id], !model.pending.contains(id) else { return nil }
+    // MARK: Long press
+
+    /// Long press on a comment: Telegram's lifted menu with the votes on
+    /// top; the finger can slide to an action and let go.
+    @objc private func longPressed(_ press: UILongPressGestureRecognizer) {
+        let point = press.location(in: nil)
+        switch press.state {
+        case .began:
+            let location = press.location(in: collectionView)
+            guard let indexPath = collectionView.indexPathForItem(at: location),
+                  case let .comment(id) = dataSource.itemIdentifier(for: indexPath),
+                  let cell = collectionView.cellForItem(at: indexPath),
+                  let menu = menu(forComment: id) else { return }
+            UIView.performWithoutAnimation { cell.isHighlighted = false }
+            if menu.present(from: cell) {
+                actionMenu = menu
+            }
+        case .changed:
+            actionMenu?.track(point)
+        case .ended:
+            actionMenu?.release(point)
+        default:
+            break
+        }
+    }
+
+    private func menu(forComment id: Int64) -> ActionMenu? {
+        guard let comment = model.comments[id], !model.pending.contains(id) else { return nil }
         let deleted = comment.isDeleted || comment.body == nil
-        return UIContextMenuConfiguration(identifier: id as NSNumber, previewProvider: nil) { [weak self] _ in
-            var children: [UIMenuElement] = []
-            if !deleted {
-                children.append(UIMenu(options: .displayInline, children: [
-                    UIAction(title: "Ответить", image: UIImage(systemName: "arrowshape.turn.up.left")) { _ in self?.reply(to: id) },
-                    UIAction(title: "Плюс", image: UIImage(systemName: "arrowshape.up"), state: comment.myVote == 1 ? .on : .off) { _ in
-                        self?.model.tapCommentVote(id, direction: 1)
-                    },
-                    UIAction(title: "Минус", image: UIImage(systemName: "arrowshape.down"), state: comment.myVote == -1 ? .on : .off) { _ in
-                        self?.model.tapCommentVote(id, direction: -1)
-                    },
-                ]))
-            }
-            if comment.parentId != nil {
-                children.append(UIAction(title: "К родительскому", image: UIImage(systemName: "arrow.up.to.line")) { _ in
-                    self?.goToParent(of: id)
-                })
-            }
-            children.append(UIAction(title: self?.model.collapsed.contains(id) == true ? "Развернуть" : "Свернуть ветку",
-                                     image: UIImage(systemName: "rectangle.compress.vertical")) { _ in
-                self?.toggleCollapse(id)
-            })
-            if self?.model.canEdit(comment) == true {
-                children.append(UIAction(title: "Изменить", image: UIImage(systemName: "pencil")) { _ in
-                    self?.edit(id)
-                })
-            }
-            if let body = comment.body, !deleted {
-                children.append(UIAction(title: "Скопировать текст", image: UIImage(systemName: "doc.on.doc")) { _ in
+        let votes = deleted ? nil : ActionMenuVotes(score: comment.score, myVote: comment.myVote) { [weak self] direction in
+            self?.model.tapCommentVote(id, direction: direction)
+        }
+        var main: [ActionMenuItem] = []
+        if !deleted {
+            main.append(ActionMenuItem("Ответить", systemImage: "arrowshape.turn.up.left") { [weak self] in self?.reply(to: id) })
+            if let body = comment.body {
+                main.append(ActionMenuItem("Скопировать", systemImage: "doc.on.doc") {
                     UIPasteboard.general.string = body
                     Haptics.success()
                 })
             }
-            if let author = comment.author {
-                children.append(UIAction(title: "Профиль автора", image: UIImage(systemName: "person")) { _ in
-                    self?.open(.user(username: author.username))
-                })
-            }
-            return UIMenu(children: children)
         }
+        if model.canEdit(comment) {
+            main.append(ActionMenuItem("Изменить", systemImage: "pencil") { [weak self] in self?.edit(id) })
+        }
+        var thread: [ActionMenuItem] = []
+        if comment.parentId != nil {
+            thread.append(ActionMenuItem("К родительскому", systemImage: "arrow.up.to.line") { [weak self] in
+                self?.goToParent(of: id)
+            })
+        }
+        let collapsed = model.collapsed.contains(id)
+        thread.append(ActionMenuItem(collapsed ? "Развернуть" : "Свернуть ветку",
+                                     systemImage: collapsed ? "rectangle.expand.vertical" : "rectangle.compress.vertical") {
+            [weak self] in self?.toggleCollapse(id)
+        })
+        if let author = comment.author {
+            thread.append(ActionMenuItem("Профиль автора", systemImage: "person") { [weak self] in
+                self?.open(.user(username: author.username))
+            })
+        }
+        var danger: [ActionMenuItem] = []
+        if model.canEdit(comment) {
+            danger.append(ActionMenuItem("Удалить", systemImage: "trash", isDestructive: true) { [weak self] in
+                self?.confirmDelete(id)
+            })
+        }
+        return ActionMenu(votes: votes, groups: [main, thread, danger])
+    }
+
+    private func confirmDelete(_ id: Int64) {
+        let sheet = UIAlertController(title: "Удалить комментарий?",
+                                      message: "Ответы на него останутся. Отменить это нельзя.", preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: "Удалить", style: .destructive) { [weak self] _ in self?.model.delete(id) })
+        sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        if let indexPath = dataSource.indexPath(for: .comment(id)) {
+            sheet.popoverPresentationController?.sourceView = collectionView.cellForItem(at: indexPath)
+        }
+        present(sheet, animated: true)
     }
 }

@@ -9,6 +9,8 @@ enum PostAction {
     case copyLink
     case openCommunity
     case openAuthor
+    /// The "⋯" button: the screen opens its menu.
+    case more
 }
 
 /// A feed post. No Auto Layout and no measuring: `layoutSubviews` assigns
@@ -33,8 +35,6 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let swipeIcon = UIImageView()
     private var layout: PostLayout?
     private var myVote = 0
-    private var communityTitle = ""
-    private var hasAuthor = false
 
     var onAction: ((PostAction) -> Void)?
 
@@ -60,12 +60,8 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         moreButton.tintColor = Palette.iconSecondary
-        moreButton.showsMenuAsPrimaryAction = true
         moreButton.accessibilityLabel = "Ещё"
-        // Built when opened, not on every configure while scrolling.
-        moreButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
-            completion(self?.menuActions() ?? [])
-        }])
+        moreButton.addAction(UIAction { [weak self] _ in self?.onAction?(.more) }, for: .touchUpInside)
 
         commentsButton.tintColor = Palette.iconSecondary
         commentsButton.isUserInteractionEnabled = false // the whole cell opens the post
@@ -126,9 +122,6 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         commentsButton.configuration = config
         commentsButton.accessibilityLabel = "\(post.commentCount) \(post.commentCount.ru("комментарий", "комментария", "комментариев"))"
 
-        communityTitle = post.community.title
-        hasAuthor = post.author != nil
-
         votes.configure(score: post.score, myVote: post.myVote, font: fonts.footer, animated: animateVote)
         accessibilityCustomActions = [
             UIAccessibilityCustomAction(name: post.myVote == 1 ? "Убрать плюс" : "Плюс") { [weak self] _ in
@@ -139,16 +132,6 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             },
         ]
         setNeedsLayout()
-    }
-
-    private func menuActions() -> [UIMenuElement] {
-        [
-            UIAction(title: "Поделиться", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in self?.onAction?(.share) },
-            UIAction(title: "Скопировать ссылку", image: UIImage(systemName: "link")) { [weak self] _ in self?.onAction?(.copyLink) },
-            UIAction(title: communityTitle, image: UIImage(systemName: "square.grid.2x2")) { [weak self] _ in self?.onAction?(.openCommunity) },
-            UIAction(title: "Профиль автора", image: UIImage(systemName: "person"),
-                     attributes: hasAuthor ? [] : .disabled) { [weak self] _ in self?.onAction?(.openAuthor) },
-        ]
     }
 
     override func layoutSubviews() {

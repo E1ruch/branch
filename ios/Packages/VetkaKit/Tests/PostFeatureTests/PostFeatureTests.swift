@@ -89,6 +89,15 @@ actor FakePostService: PostService {
     var editError: APIError?
     func failEdits(with error: APIError?) { editError = error }
 
+    var deleted: [Int64] = []
+    var deleteError: APIError?
+    func failDeletes(with error: APIError?) { deleteError = error }
+
+    func deleteComment(_ id: Int64) async throws(APIError) {
+        deleted.append(id)
+        if let deleteError { throw deleteError }
+    }
+
     func editComment(_ id: Int64, body: String) async throws(APIError) -> Core.Comment {
         edits.append((id, body))
         if let editError { throw editError }
@@ -172,6 +181,35 @@ actor FakePostService: PostService {
         try await Task.sleep(for: .milliseconds(50))
         #expect(m.comments[1]?.body == "комментарий 1" && m.comments[1]?.editedAt == nil)
         #expect(returned?.0 == 1 && returned?.1 == "правка")
+    }
+
+    @Test func deleteLeavesATombstoneAndRollsBackOnError() async throws {
+        let service = FakePostService()
+        await service.set(post: post(1, comments: 3))
+        await service.set(thread: page([comment(1, replies: 1, authorID: 9), comment(2, parent: 1, depth: 1), comment(3)]))
+        let (m, _) = await model(service)
+        await m.load()
+        var failed = false
+        m.onDeleteFailed = { _ in failed = true }
+
+        m.delete(3) // someone else's: nothing
+        #expect(m.comments[3]?.body == "комментарий 3")
+        m.delete(1)
+        #expect(m.comments[1]?.isDeleted == true && m.comments[1]?.body == nil && m.comments[1]?.author == nil)
+        #expect(m.rows.contains(.comment(2))) // the reply stays
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await service.deleted == [1] && !failed)
+
+        let other = FakePostService()
+        await other.set(post: post(1, comments: 1))
+        await other.set(thread: page([comment(1, authorID: 9)]))
+        await other.failDeletes(with: .transport(.notConnectedToInternet))
+        let (m2, _) = await model(other)
+        await m2.load()
+        m2.onDeleteFailed = { _ in failed = true }
+        m2.delete(1)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(failed && m2.comments[1]?.body == "комментарий 1" && m2.comments[1]?.author?.id == 9)
     }
 
     @Test func loadsThePostAndTheFlatThread() async {

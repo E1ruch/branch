@@ -87,6 +87,8 @@ final class ThreadModel {
     /// An edit did not go through: the old text is back in the thread, the
     /// new one goes back to the composer.
     var onEditFailed: ((_ id: Int64, _ text: String, APIError) -> Void)?
+    /// A delete did not go through: the comment is back.
+    var onDeleteFailed: ((APIError) -> Void)?
 
     private let service: any PostService
     private let store: PostStore
@@ -693,6 +695,27 @@ final class ThreadModel {
             Haptics.error()
             onEditFailed?(id, body, error)
             if error == .unauthorized { requestSignIn() }
+        }
+    }
+
+    /// Turns your comment into a tombstone at once ("Комментарий удалён",
+    /// replies stay) and deletes it on the server; an error brings it back.
+    func delete(_ id: Int64) {
+        guard let comment = comments[id], canEdit(comment) else { return }
+        show(Comment(id: id, postId: comment.postId, parentId: comment.parentId, depth: comment.depth, body: nil,
+                     isDeleted: true, author: nil, score: comment.score, myVote: comment.myVote,
+                     replyCount: comment.replyCount, createdAt: comment.createdAt, editedAt: comment.editedAt))
+        Task { [weak self] in
+            guard let self else { return }
+            do throws(APIError) {
+                try await service.deleteComment(id)
+                Haptics.success()
+            } catch {
+                show(comment)
+                Haptics.error()
+                onDeleteFailed?(error)
+                if error == .unauthorized { requestSignIn() }
+            }
         }
     }
 

@@ -16,6 +16,8 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, Int64>!
     private let skeleton = SkeletonFeedView()
+    /// The long-press menu while it is open: the finger's moves go to it.
+    private var actionMenu: ActionMenu?
     private var didStartLoading = false
 
     public init(model: FeedModel, open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void) {
@@ -44,6 +46,9 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
         collectionView.register(PostCell.self, forCellWithReuseIdentifier: PostCell.reuseID)
         collectionView.accessibilityIdentifier = "feed.\(model.source.accessibilityName)"
         view.addSubview(collectionView)
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(longPressed))
+        press.minimumPressDuration = 0.35
+        collectionView.addGestureRecognizer(press)
 
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] cv, indexPath, id in
             let cell = cv.dequeueReusableCell(withReuseIdentifier: PostCell.reuseID, for: indexPath) as! PostCell
@@ -200,29 +205,46 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
         Task { await model.loadMoreIfNeeded(displaying: indexPath.item) }
     }
 
-    /// Long press: the same actions as the "⋯" menu plus the votes, with
-    /// the system's lifted preview and haptic.
-    public func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
-                        point: CGPoint) -> UIContextMenuConfiguration? {
-        guard let indexPath = indexPaths.first, let id = dataSource.itemIdentifier(for: indexPath),
-              let post = model.posts[id] else { return nil }
-        return UIContextMenuConfiguration(identifier: id as NSNumber, previewProvider: nil) { [weak self] _ in
-            let act: (PostAction) -> UIActionHandler = { action in { _ in self?.handle(action, post: id) } }
-            let votes = UIMenu(options: .displayInline, children: [
-                UIAction(title: "Плюс", image: UIImage(systemName: "arrowshape.up"),
-                         state: post.myVote == 1 ? .on : .off, handler: act(.vote(1))),
-                UIAction(title: "Минус", image: UIImage(systemName: "arrowshape.down"),
-                         state: post.myVote == -1 ? .on : .off, handler: act(.vote(-1))),
-            ])
-            return UIMenu(children: [
-                votes,
-                UIAction(title: "Поделиться", image: UIImage(systemName: "square.and.arrow.up"), handler: act(.share)),
-                UIAction(title: "Скопировать ссылку", image: UIImage(systemName: "link"), handler: act(.copyLink)),
-                UIAction(title: post.community.title, image: UIImage(systemName: "square.grid.2x2"), handler: act(.openCommunity)),
-                UIAction(title: "Профиль автора", image: UIImage(systemName: "person"),
-                         attributes: post.author == nil ? .disabled : [], handler: act(.openAuthor)),
-            ])
+    // MARK: Menu
+
+    /// Long press: Telegram's lifted menu, votes on top; the finger can
+    /// slide to an action and let go. "⋯" opens the same menu.
+    @objc private func longPressed(_ press: UILongPressGestureRecognizer) {
+        let point = press.location(in: nil)
+        switch press.state {
+        case .began:
+            guard let indexPath = collectionView.indexPathForItem(at: press.location(in: collectionView)),
+                  let id = dataSource.itemIdentifier(for: indexPath) else { return }
+            actionMenu = showMenu(post: id)
+        case .changed:
+            actionMenu?.track(point)
+        case .ended:
+            actionMenu?.release(point)
+        default:
+            break
         }
+    }
+
+    @discardableResult
+    private func showMenu(post id: Int64) -> ActionMenu? {
+        guard let post = model.posts[id], let indexPath = dataSource.indexPath(for: id),
+              let cell = collectionView.cellForItem(at: indexPath) else { return nil }
+        let act: (PostAction) -> () -> Void = { action in { [weak self] in self?.handle(action, post: id) } }
+        var places = [ActionMenuItem(post.community.title, systemImage: "square.grid.2x2", handler: act(.openCommunity))]
+        if post.author != nil {
+            places.append(ActionMenuItem("Профиль автора", systemImage: "person", handler: act(.openAuthor)))
+        }
+        let menu = ActionMenu(
+            votes: ActionMenuVotes(score: post.score, myVote: post.myVote) { [weak self] direction in
+                self?.handle(.vote(direction), post: id)
+            },
+            groups: [
+                [ActionMenuItem("Поделиться", systemImage: "square.and.arrow.up", handler: act(.share)),
+                 ActionMenuItem("Скопировать ссылку", systemImage: "link", handler: act(.copyLink))],
+                places,
+            ])
+        UIView.performWithoutAnimation { cell.isHighlighted = false }
+        return menu.present(from: cell, height: model.layouts[id]?.contentHeight) ? menu : nil
     }
 
     private func handle(_ action: PostAction, post id: Int64) {
@@ -245,6 +267,8 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
             if let author = post.author {
                 open(.user(username: author.username))
             }
+        case .more:
+            actionMenu = showMenu(post: id)
         }
     }
 

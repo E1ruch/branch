@@ -11,6 +11,8 @@ enum PostDetailAction {
     case openCommunity
     case openAuthor
     case continueStory
+    /// The "⋯" button, passed along so the menu grows out of it.
+    case more(UIView)
 }
 
 /// The post itself: header, title, the whole body, votes. Frames come from
@@ -32,9 +34,6 @@ final class PostDetailCell: UICollectionViewCell {
     private let gapView = UIView()
     private let skeleton = ThreadSkeletonView(style: .post)
     private var layout: PostDetailLayout?
-    private var hasAuthor = false
-    private var canContinue = false
-    private var communityTitle = ""
 
     var onAction: ((PostDetailAction) -> Void)?
 
@@ -61,27 +60,11 @@ final class PostDetailCell: UICollectionViewCell {
 
         moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         moreButton.tintColor = Palette.iconSecondary
-        moreButton.showsMenuAsPrimaryAction = true
         moreButton.accessibilityLabel = "Ещё"
-        moreButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
-            guard let self else { return completion([]) }
-            let act: (PostDetailAction) -> UIActionHandler = { action in { [weak self] _ in self?.onAction?(action) } }
-            var items: [UIMenuElement] = []
-            if canContinue {
-                items.append(UIMenu(options: .displayInline, children: [
-                    UIAction(title: "Добавить следующую часть", image: UIImage(systemName: "book.pages"),
-                             handler: act(.continueStory)),
-                ]))
-            }
-            items += [
-                UIAction(title: "Поделиться", image: UIImage(systemName: "square.and.arrow.up"), handler: act(.share)),
-                UIAction(title: "Скопировать ссылку", image: UIImage(systemName: "link"), handler: act(.copyLink)),
-                UIAction(title: communityTitle, image: UIImage(systemName: "square.grid.2x2"), handler: act(.openCommunity)),
-                UIAction(title: "Профиль автора", image: UIImage(systemName: "person"),
-                         attributes: hasAuthor ? [] : .disabled, handler: act(.openAuthor)),
-            ]
-            completion(items)
-        }])
+        moreButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            onAction?(.more(moreButton))
+        }, for: .touchUpInside)
 
         commentsLabel.tintColor = Palette.iconSecondary
         commentsLabel.isUserInteractionEnabled = false
@@ -100,9 +83,8 @@ final class PostDetailCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     /// `post` nil: the post is still loading, show its outline.
-    func configure(post: Post?, layout: PostDetailLayout?, fonts: ThreadFonts, canContinue: Bool, animateVote: Bool) {
+    func configure(post: Post?, layout: PostDetailLayout?, fonts: ThreadFonts, animateVote: Bool) {
         self.layout = layout
-        self.canContinue = canContinue
         guard let post, let layout else {
             skeleton.isHidden = false
             for view in contentView.subviews where view !== skeleton { view.isHidden = true }
@@ -117,8 +99,6 @@ final class PostDetailCell: UICollectionViewCell {
         authorLabel.text = author
         authorButton.isEnabled = post.author != nil
         authorButton.accessibilityLabel = "Автор \(author)"
-        communityTitle = post.community.title
-        hasAuthor = post.author != nil
         metaLabel.font = fonts.postMeta
         var meta = [RelativeAge.text(from: post.createdAt, now: Date()), post.community.title]
         if post.editedAt != nil { meta.append("изменено") }

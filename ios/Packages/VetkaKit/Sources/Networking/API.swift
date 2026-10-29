@@ -206,6 +206,11 @@ public enum API {
         Endpoint(.patch, "/v1/comments/\(id)", body: ["body": body], auth: .required)
     }
 
+    /// Turns your comment into a tombstone; its replies stay. Safe to retry.
+    public static func deleteComment(_ id: Int64) -> Endpoint<NoContent> {
+        Endpoint(.delete, "/v1/comments/\(id)", auth: .required)
+    }
+
     public static func createComment(postID: Int64, parentID: Int64?, body: String) -> Endpoint<Comment> {
         Endpoint(.post, "/v1/posts/\(postID)/comments", body: NewComment(body: body, parentId: parentID), auth: .required)
     }
