@@ -32,7 +32,7 @@ import Testing
 @Suite struct AuthErrorTextTests {
     @Test func wrongPasswordAndUnknownUserReadTheSame() {
         let error = APIError.server(status: 401, code: "invalid_credentials", message: "", field: nil)
-        #expect(AuthErrorText.message(for: error, signingIn: true) == "Неверный ник или пароль")
+        #expect(AuthErrorText.message(for: error, signingIn: true) == "Неверный email или пароль")
     }
 
     @Test func fieldErrorsNameTheField() {
@@ -40,6 +40,8 @@ import Testing
         #expect(AuthErrorText.message(for: password, signingIn: false).hasPrefix("Пароль"))
         let taken = APIError.server(status: 409, code: "username_taken", message: "", field: "username")
         #expect(AuthErrorText.message(for: taken, signingIn: false) == "Этот ник уже занят")
+        let email = APIError.server(status: 422, code: "validation_failed", message: "", field: "email")
+        #expect(AuthErrorText.message(for: email, signingIn: false) == "Введите корректный email")
     }
 
     @Test func offlineIsNotBlamedOnTheUser() {

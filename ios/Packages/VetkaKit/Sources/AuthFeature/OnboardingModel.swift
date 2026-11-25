@@ -6,16 +6,19 @@ import Observation
 import Session
 import Stores
 
-/// After a provider sign-up (Apple, later Telegram) the account has a
-/// generated or borrowed username; onboarding lets the person pick theirs.
+/// Picks the first public username or offers to change a provider's suggestion.
 @MainActor
 @Observable
 public final class OnboardingModel {
-    public var username: String
+    public var username: String {
+        didSet { error = nil }
+    }
     public var displayName: String
-    public var availability: UsernameStatus { usernameCheck.status }
+    public var availability: UsernameStatus { usernameCheck.status(for: username) }
     public private(set) var isSaving = false
+    public private(set) var isSigningOut = false
     public private(set) var error: String?
+    public let isRequired: Bool
 
     private let original: String
     private let client: APIClient
@@ -25,14 +28,15 @@ public final class OnboardingModel {
     public init(client: APIClient, session: SessionStore) {
         self.client = client
         self.session = session
-        original = session.me?.username ?? ""
+        isRequired = session.requiresUsername
+        original = isRequired ? "" : session.me?.username ?? ""
         username = original
         displayName = session.me?.displayName ?? ""
         usernameCheck = UsernameCheck(original: original, client: client)
     }
 
     var canSave: Bool {
-        !isSaving && availability.allowsSaving
+        !isSaving && !isSigningOut && (isRequired ? availability == .available : availability.allowsSaving)
     }
 
     /// Runs from `.task(id: username)`: SwiftUI cancels it when the text
@@ -50,19 +54,32 @@ public final class OnboardingModel {
         do {
             let me = try await client.send(API.updateMe(
                 username: username == original ? nil : username,
-                displayName: displayName.trimmingCharacters(in: .whitespaces)))
+                displayName: isRequired ? nil : displayName.trimmingCharacters(in: .whitespaces)))
             Haptics.success()
             session.finishOnboarding(me)
             return true
+        } catch .cancelled {
+            return false
         } catch {
             Haptics.error()
-            if case .server(_, "username_taken", _, _) = error { usernameCheck.markTaken() }
-            self.error = AuthErrorText.message(for: error, signingIn: false)
+            if case .server(_, "username_taken", _, _) = error {
+                usernameCheck.markTaken()
+            } else {
+                self.error = AuthErrorText.message(for: error, signingIn: false)
+            }
             return false
         }
     }
 
     func skip() {
+        guard !isRequired else { return }
         session.finishOnboarding(nil)
+    }
+
+    func signOut() async {
+        guard !isSaving, !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
+        await session.signOut()
     }
 }

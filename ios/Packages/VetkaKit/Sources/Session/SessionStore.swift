@@ -14,9 +14,11 @@ public final class SessionStore {
 
     public private(set) var state: State
     public private(set) var me: Me?
-    /// Just signed up: the app asks for a username before anything else.
-    public private(set) var needsOnboarding = false
+    public private(set) var requiresUsername = false
+    public var needsOnboarding: Bool { requiresUsername || offersProviderOnboarding }
 
+    private var offersProviderOnboarding = false
+    private var profileRevision = 0
     private let tokens: TokenStore
     private let client: APIClient
 
@@ -43,23 +45,27 @@ public final class SessionStore {
     /// The auth feature calls this after a successful sign-in.
     public func didSignIn(_ session: AuthSession) async {
         await tokens.store(session.tokens)
-        // Load the profile first: onboarding opens prefilled with the
-        // current username, never with an empty field.
-        await reloadMe()
-        needsOnboarding = session.isNewUser
+        requiresUsername = session.user.username.isEmpty
+        offersProviderOnboarding = session.isNewUser && !requiresUsername
+        if !requiresUsername {
+            await reloadMe()
+        }
+        guard await tokens.isSignedIn else { return }
         state = .signedIn
     }
 
     /// Onboarding saved the profile (or was skipped, with nil).
     public func finishOnboarding(_ updated: Me?) {
         if let updated {
-            me = updated
+            didUpdate(updated)
         }
-        needsOnboarding = false
+        offersProviderOnboarding = false
     }
 
     /// The profile was edited and saved.
     public func didUpdate(_ updated: Me) {
+        profileRevision += 1
+        requiresUsername = updated.username.isEmpty
         me = updated
     }
 
@@ -81,18 +87,23 @@ public final class SessionStore {
     }
 
     public func reloadMe() async {
+        let revision = profileRevision
         do {
-            me = try await client.send(API.me())
+            let profile = try await client.send(API.me())
+            guard revision == profileRevision else { return }
+            didUpdate(profile)
         } catch .unauthorized {
-            didEnd()
+            if revision == profileRevision { didEnd() }
         } catch {
             // Offline at launch: keep the session, the profile loads later.
         }
     }
 
     private func didEnd() {
+        profileRevision += 1
         state = .signedOut
         me = nil
-        needsOnboarding = false
+        requiresUsername = false
+        offersProviderOnboarding = false
     }
 }

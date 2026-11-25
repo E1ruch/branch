@@ -76,7 +76,7 @@ type Tokens struct {
 type Session struct {
 	Tokens
 	User      user.User
-	IsNewUser bool // the app shows onboarding (pick a username)
+	IsNewUser bool // this sign-in created the account
 }
 
 func (s *Service) VerifyAccessToken(token string) (int64, error) {

@@ -92,6 +92,22 @@ func (h *userHandlers) deleteMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// requireUsername keeps social actions behind the first public username.
+func (h *userHandlers) requireUsername(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := h.users.RequireUsername(r.Context(), viewer(r))
+		if errors.Is(err, user.ErrNotFound) {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "account not found")
+			return
+		}
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // profileDTO is someone's profile as the viewer sees it.
 type profileDTO struct {
 	userDTO
@@ -312,6 +328,8 @@ func (h *userHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "user not found")
 	case errors.Is(err, user.ErrUsernameTaken):
 		writeFieldError(w, http.StatusConflict, "username_taken", "username", "this username is taken")
+	case errors.Is(err, user.ErrUsernameRequired):
+		writeFieldError(w, http.StatusForbidden, "username_required", "username", "choose a username to continue")
 	case errors.Is(err, user.ErrFollowSelf):
 		writeError(w, http.StatusUnprocessableEntity, "cannot_follow_self", "you cannot follow yourself")
 	case errors.Is(err, user.ErrUsernameChangeTooSoon):

@@ -16,8 +16,12 @@ public final class SignInModel {
     public var mode: Mode = .login {
         didSet { error = nil }
     }
-    public var username = ""
-    public var password = ""
+    public var email = "" {
+        didSet { error = nil }
+    }
+    public var password = "" {
+        didSet { error = nil }
+    }
     public private(set) var isWorking = false
     public private(set) var error: String?
 
@@ -31,15 +35,17 @@ public final class SignInModel {
     }
 
     var canSubmit: Bool {
-        !isWorking && UsernameRule.isValid(username) && password.count >= PasswordRule.minLength
+        guard !isWorking, !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return mode == .login ? !password.isEmpty : password.unicodeScalars.count >= PasswordRule.minLength
     }
 
     func submitPassword() async {
         guard canSubmit else { return }
         let device = currentDeviceName()
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let endpoint = mode == .login
-            ? API.login(username: username, password: password, deviceName: device)
-            : API.register(username: username, password: password, deviceName: device)
+            ? API.login(email: email, password: password, deviceName: device)
+            : API.register(email: email, password: password, deviceName: device)
         await signIn(with: endpoint, signingIn: mode == .login)
     }
 
@@ -81,8 +87,8 @@ public final class SignInModel {
         do {
             let result = try await client.send(endpoint)
             Haptics.success()
-            password = ""
             await session.didSignIn(result)
+            password = ""
         } catch .cancelled {
             // The sheet went away mid-request.
         } catch {

@@ -163,7 +163,7 @@ func (s *store) revokeFamily(ctx context.Context, hash []byte, now time.Time) er
 
 // createPasswordUser creates the account and its password in one
 // transaction: never a user without a way to sign in.
-func (s *store) createPasswordUser(ctx context.Context, username, hash string) (user.User, error) {
+func (s *store) createPasswordUser(ctx context.Context, email, hash string) (user.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return user.User{}, err
@@ -171,23 +171,23 @@ func (s *store) createPasswordUser(ctx context.Context, username, hash string) (
 	defer tx.Rollback(ctx)
 
 	u, err := user.Scan(tx.QueryRow(ctx, `
-		INSERT INTO users (username) VALUES ($1)
-		ON CONFLICT (username) DO NOTHING
-		RETURNING `+user.Columns, username))
-	if errors.Is(err, user.ErrNotFound) {
-		return user.User{}, user.ErrUsernameTaken
-	}
+		INSERT INTO users DEFAULT VALUES RETURNING `+user.Columns))
 	if err != nil {
 		return user.User{}, err
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO password_credentials (user_id, hash) VALUES ($1, $2)`, u.ID, hash); err != nil {
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO password_credentials (user_id, hash, email) VALUES ($1, $2, $3)
+		ON CONFLICT (email) DO NOTHING`, u.ID, hash, email)
+	if err != nil {
 		return user.User{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return user.User{}, ErrEmailTaken
 	}
 	return u, tx.Commit(ctx)
 }
 
-func (s *store) passwordHash(ctx context.Context, username string) (int64, string, error) {
+func (s *store) passwordHash(ctx context.Context, email string) (int64, string, error) {
 	var (
 		id   int64
 		hash string
@@ -195,7 +195,7 @@ func (s *store) passwordHash(ctx context.Context, username string) (int64, strin
 	err := s.db.QueryRow(ctx, `
 		SELECT u.id, pc.hash FROM users u
 		JOIN password_credentials pc ON pc.user_id = u.id
-		WHERE u.username = $1 AND u.deleted_at IS NULL`, username).Scan(&id, &hash)
+		WHERE pc.email = $1 AND u.deleted_at IS NULL`, email).Scan(&id, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, "", user.ErrNotFound
 	}
@@ -203,5 +203,5 @@ func (s *store) passwordHash(ctx context.Context, username string) (int64, strin
 }
 
 func (s *store) userByID(ctx context.Context, id int64) (user.User, error) {
-	return user.Scan(s.db.QueryRow(ctx, `SELECT `+user.Columns+` FROM users WHERE id = $1`, id))
+	return user.Scan(s.db.QueryRow(ctx, `SELECT `+user.Columns+` FROM users WHERE id = $1 AND deleted_at IS NULL`, id))
 }

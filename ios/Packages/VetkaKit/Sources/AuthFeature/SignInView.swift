@@ -1,5 +1,4 @@
 import AuthenticationServices
-import Core
 import DesignSystem
 import SwiftUI
 
@@ -7,9 +6,12 @@ struct SignInView: View {
     @Bindable var model: SignInModel
     let showsSignInWithApple: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focus: Field?
 
-    private enum Field { case username, password }
+    private enum Field { case email, password }
+
+    private var motion: Animation? { reduceMotion ? nil : .vetkaSnappy }
 
     var body: some View {
         ScrollView {
@@ -22,11 +24,12 @@ struct SignInView: View {
                 }
                 .padding(.top, Spacing.xl)
 
-                Picker("Режим", selection: $model.mode.animation(.vetkaSnappy)) {
+                Picker("Режим", selection: $model.mode) {
                     Text("Вход").tag(SignInModel.Mode.login)
                     Text("Регистрация").tag(SignInModel.Mode.register)
                 }
                 .pickerStyle(.segmented)
+                .disabled(model.isWorking)
 
                 passwordForm
 
@@ -47,60 +50,68 @@ struct SignInView: View {
                     .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     .disabled(model.isWorking)
                 }
-
-                if let error = model.error {
-                    Text(error)
-                        .font(.callout)
-                        .foregroundStyle(Color.vetkaDanger)
-                        .multilineTextAlignment(.center)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                        .accessibilityIdentifier("auth.error")
-                }
             }
             .padding(.horizontal, Spacing.xl)
-            .animation(.vetka, value: model.error)
+            .padding(.bottom, Spacing.xl)
         }
         .scrollDismissesKeyboard(.interactively)
-        .onAppear { focus = .username }
+        .onAppear { focus = .email }
     }
 
     private var passwordForm: some View {
         VStack(spacing: Spacing.m) {
-            TextField("Ник", text: $model.username)
+            TextField("Email", text: $model.email)
                 .textContentType(.username)
+                .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.next)
-                .focused($focus, equals: .username)
+                .focused($focus, equals: .email)
                 .onSubmit { focus = .password }
                 .fieldStyle()
-                .accessibilityIdentifier("auth.username")
+                .disabled(model.isWorking)
+                .accessibilityIdentifier("auth.email")
 
             SecureField("Пароль", text: $model.password)
                 .textContentType(model.mode == .login ? .password : .newPassword)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .submitLabel(.go)
                 .focused($focus, equals: .password)
                 .onSubmit { Task { await model.submitPassword() } }
                 .fieldStyle()
+                .disabled(model.isWorking)
                 .accessibilityIdentifier("auth.password")
 
-            if model.mode == .register {
-                Text("Ник: \(UsernameRule.hint). Пароль — от \(PasswordRule.minLength) символов.")
-                    .font(.footnote)
-                    .foregroundStyle(Color.vetkaSecondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            ZStack(alignment: .leading) {
+                Color.clear.frame(height: 20)
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(Color.vetkaDanger)
+                        .accessibilityIdentifier("auth.error")
+                } else if model.mode == .register {
+                    Text("Пароль — от \(PasswordRule.minLength) символов.")
+                        .foregroundStyle(Color.vetkaSecondaryText)
+                }
             }
+            .font(.footnote)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(motion, value: model.error)
+            .animation(motion, value: model.mode)
 
             Button {
                 Task { await model.submitPassword() }
             } label: {
                 ZStack {
                     Text(model.mode == .login ? "Войти" : "Создать аккаунт")
+                        .contentTransition(.opacity)
                         .opacity(model.isWorking ? 0 : 1)
                     if model.isWorking {
                         ProgressView()
                     }
                 }
+                .animation(motion, value: model.mode)
+                .animation(motion, value: model.isWorking)
             }
             .buttonStyle(.vetkaPrimary())
             .disabled(!model.canSubmit)

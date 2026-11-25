@@ -30,11 +30,12 @@ public final class UsernameCheck {
     public typealias Check = @Sendable (_ name: String) async throws(APIError) -> UsernameAvailability
 
     public private(set) var status: UsernameStatus = .current
+    private var checkedName: String?
 
     @ObservationIgnored private let original: String
     @ObservationIgnored private let check: Check
     @ObservationIgnored private let debounce: Duration
-    @ObservationIgnored private var latest = ""
+    @ObservationIgnored private var revision = 0
 
     /// `debounce`: typing pause before asking the server, so a name typed
     /// in one go costs one request, not one per letter.
@@ -50,10 +51,19 @@ public final class UsernameCheck {
         }
     }
 
+    public func status(for name: String) -> UsernameStatus {
+        if name == original { return .current }
+        guard UsernameRule.isValid(name) else { return .invalid(UsernameRule.hint) }
+        return checkedName == name ? status : .checking
+    }
+
     /// Call from `.task(id: name)`: SwiftUI cancels it when the text
     /// changes again, which is the debounce.
     public func run(_ name: String) async {
-        latest = name
+        guard !Task.isCancelled else { return }
+        revision += 1
+        let request = revision
+        checkedName = name
         if name == original {
             status = .current
             return
@@ -70,14 +80,14 @@ public final class UsernameCheck {
         }
         do throws(APIError) {
             let result = try await check(name)
-            guard name == latest else { return }
+            guard request == revision, !Task.isCancelled else { return }
             switch (result.available, result.reason) {
             case (true, _): status = .available
             case (false, "taken"): status = .taken
             default: status = .invalid(result.message.map(Self.translate) ?? UsernameRule.hint)
             }
         } catch {
-            if name == latest { status = .unknown }
+            if request == revision, !Task.isCancelled { status = .unknown }
         }
     }
 

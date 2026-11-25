@@ -38,13 +38,17 @@ enum AuthErrorText {
     static func message(for error: APIError, signingIn: Bool) -> String {
         switch error {
         case .server(_, "invalid_credentials", _, _):
-            signingIn ? "Неверный ник или пароль" : "Не удалось подтвердить вход. Попробуйте ещё раз."
+            signingIn ? "Неверный email или пароль" : "Не удалось подтвердить вход. Попробуйте ещё раз."
+        case .server(_, "email_taken", _, _):
+            "На этот email уже есть аккаунт. Выберите «Вход»."
         case .server(_, "username_taken", _, _):
             "Этот ник уже занят"
         case .server(_, "validation_failed", _, "username"):
             "Ник: \(UsernameRule.hint)"
+        case .server(_, "validation_failed", _, "email"):
+            "Введите корректный email"
         case .server(_, "validation_failed", _, "password"):
-            "Пароль — от \(PasswordRule.minLength) символов и не совпадает с ником"
+            "Пароль должен содержать от \(PasswordRule.minLength) до 128 символов и отличаться от email"
         case .server(_, "rate_limited", _, _):
             "Слишком много попыток. Попробуйте через несколько минут."
         case .server(_, "provider_unavailable", _, _):

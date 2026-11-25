@@ -18,7 +18,7 @@ public final class EditProfileModel {
     public var username: String
     public private(set) var isSaving = false
     public private(set) var error: String?
-    public var usernameStatus: UsernameStatus { usernameCheck.status }
+    public var usernameStatus: UsernameStatus { usernameCheck.status(for: username) }
 
     /// The server's limits, counted the way it counts (code points).
     static let maxDisplayName = 48

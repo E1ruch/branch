@@ -120,6 +120,9 @@ public struct AppRootView: View {
             AuthFlowView(client: app.client, session: app.session,
                          showsSignInWithApple: app.features.signInWithApple)
         }
+        .onChange(of: app.session.requiresUsername, initial: true) {
+            if app.session.requiresUsername { router.isAuthPresented = true }
+        }
         .task {
             Haptics.prepare()
             await app.session.start()
@@ -136,7 +139,7 @@ public struct AppRootView: View {
     }
 
     private func seedMyProfile() {
-        guard let me = app.session.me else { return }
+        guard let me = app.session.me, !me.username.isEmpty else { return }
         app.profiles.merge([Profile(me)])
     }
 
@@ -213,7 +216,9 @@ struct RouteView: View {
             FollowsScreen(username: username, list: list, profiles: app.profiles, client: app.client,
                           myUsername: app.session.me?.username)
         case .editProfile:
-            if let me = app.session.me {
+            if app.session.requiresUsername {
+                ProgressView().navigationTitle("Профиль")
+            } else if let me = app.session.me {
                 EditProfileScreen(model: EditProfileModel(me: me, client: app.client)) { app.session.didUpdate($0) }
             }
         }

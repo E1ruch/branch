@@ -18,6 +18,7 @@ import (
 var (
 	ErrNotFound              = errors.New("user: not found")
 	ErrUsernameTaken         = errors.New("user: username taken")
+	ErrUsernameRequired      = errors.New("user: username required")
 	ErrUsernameChangeTooSoon = errors.New("user: username changed recently")
 	ErrFollowSelf            = errors.New("user: cannot follow yourself")
 )
@@ -54,7 +55,7 @@ const (
 
 // Columns is the select list matching Scan, for queries in other packages
 // that return users (sign-up, for one).
-const Columns = `id, username, display_name, bio, post_karma, comment_karma, created_at,
+const Columns = `id, COALESCE(username::text, '') AS username, display_name, bio, post_karma, comment_karma, created_at,
 	posts_count, followers_count, following_count,
 	username_changed_at + interval '30 days'`
 
@@ -115,6 +116,18 @@ func (s *Store) GetByUsername(ctx context.Context, username string) (User, error
 		`SELECT `+Columns+` FROM users WHERE username = $1 AND deleted_at IS NULL`, username))
 }
 
+func (s *Store) RequireUsername(ctx context.Context, id int64) error {
+	var hasUsername bool
+	err := s.db.QueryRow(ctx, `SELECT username IS NOT NULL FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&hasUsername)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err == nil && !hasUsername {
+		return ErrUsernameRequired
+	}
+	return err
+}
+
 // MinSearchLen, as for posts: two letters match a large part of everyone.
 const MinSearchLen = 3
 
@@ -169,7 +182,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]User, er
 		if err := add(s.db.Query(ctx, `
 			WITH matches AS MATERIALIZED (
 				SELECT id, post_karma + comment_karma AS karma FROM users
-				WHERE deleted_at IS NULL AND display_name ILIKE $1
+				WHERE deleted_at IS NULL AND username IS NOT NULL AND display_name ILIKE $1
 				LIMIT 500
 			)
 			SELECT `+Columns+` FROM users JOIN matches USING (id)
@@ -227,6 +240,9 @@ func (s *Store) Update(ctx context.Context, id int64, in UpdateInput) (User, err
 		`SELECT `+Columns+` FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, id))
 	if err != nil {
 		return User{}, err
+	}
+	if current.Username == "" && in.Username == nil {
+		return User{}, ErrUsernameRequired
 	}
 
 	now := s.now()

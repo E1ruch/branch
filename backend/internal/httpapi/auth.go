@@ -138,21 +138,19 @@ func (h *authHandlers) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// fail maps auth errors to stable codes. The client signs out on
-// refresh_invalid and shows a retry on provider_unavailable.
 type passwordRequest struct {
-	Username   string `json:"username"`
+	Email      string `json:"email"`
 	Password   string `json:"password"`
 	DeviceName string `json:"device_name"`
 }
 
-// register: POST /v1/auth/register {"username", "password", "device_name"}.
+// register: POST /v1/auth/register {"email", "password", "device_name"}.
 func (h *authHandlers) register(w http.ResponseWriter, r *http.Request) {
 	var req passwordRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	session, err := h.svc.Register(r.Context(), req.Username, req.Password, req.DeviceName, clientAddr(r))
+	session, err := h.svc.Register(r.Context(), req.Email, req.Password, req.DeviceName, clientAddr(r))
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -160,13 +158,13 @@ func (h *authHandlers) register(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toSessionResponse(session))
 }
 
-// login: POST /v1/auth/login {"username", "password", "device_name"}.
+// login: POST /v1/auth/login {"email", "password", "device_name"}.
 func (h *authHandlers) login(w http.ResponseWriter, r *http.Request) {
 	var req passwordRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	session, err := h.svc.Login(r.Context(), req.Username, req.Password, req.DeviceName, clientAddr(r))
+	session, err := h.svc.Login(r.Context(), req.Email, req.Password, req.DeviceName, clientAddr(r))
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -189,8 +187,8 @@ func (h *authHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &verr):
 		writeFieldError(w, http.StatusUnprocessableEntity, "validation_failed", verr.Field, verr.Message)
-	case errors.Is(err, user.ErrUsernameTaken):
-		writeFieldError(w, http.StatusConflict, "username_taken", "username", "this username is taken")
+	case errors.Is(err, auth.ErrEmailTaken):
+		writeFieldError(w, http.StatusConflict, "email_taken", "email", "this email is already registered")
 	case errors.Is(err, auth.ErrRateLimited):
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
 	case errors.Is(err, auth.ErrInvalidCredentials):

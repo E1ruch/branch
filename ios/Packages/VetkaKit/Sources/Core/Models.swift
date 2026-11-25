@@ -20,6 +20,7 @@ public struct User: Codable, Sendable, Hashable, Identifiable {
 /// The signed-in user's own profile: the public one plus owner-only fields.
 public struct Me: Codable, Sendable, Hashable, Identifiable {
     public let id: Int64
+    /// Empty until the owner picks a public nickname.
     public let username: String
     public let displayName: String?
     public let bio: String?
@@ -291,7 +292,7 @@ public struct AuthSession: Decodable, Sendable {
     public let accessExpiresAt: Date
     public let refreshToken: String
     public let user: User
-    /// Show onboarding (pick a username).
+    /// This request created the account. An empty `user.username` means the nickname is still required.
     public let isNewUser: Bool
 
     public var tokens: Tokens {

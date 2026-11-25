@@ -3,11 +3,13 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -33,8 +35,9 @@ const (
 
 var (
 	ErrRateLimited = errors.New("auth: too many attempts")
+	ErrEmailTaken  = errors.New("auth: email taken")
 
-	// Hashed for unknown usernames, so a miss costs as much as a wrong
+	// Hashed for unknown addresses, so a miss costs as much as a wrong
 	// password and response time does not reveal which accounts exist.
 	dummyHash = mustHash("dummy password for timing")
 )
@@ -82,20 +85,31 @@ func verifyPassword(password, encoded string) bool {
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
-func validatePassword(password, username string) error {
+func normalizeEmail(raw string) (string, error) {
+	email := strings.ToLower(strings.TrimSpace(raw))
+	if len(email) <= 254 {
+		address, err := mail.ParseAddress(email)
+		if err == nil && address.Address == email && address.Name == "" {
+			return email, nil
+		}
+	}
+	return "", &user.ValidationError{Field: "email", Message: "enter a valid email address"}
+}
+
+func validatePassword(password, email string) error {
 	n := utf8.RuneCountInString(password)
 	switch {
 	case n < minPassword:
 		return &user.ValidationError{Field: "password", Message: fmt.Sprintf("at least %d characters", minPassword)}
 	case n > maxPassword:
 		return &user.ValidationError{Field: "password", Message: fmt.Sprintf("at most %d characters", maxPassword)}
-	case strings.EqualFold(password, username):
-		return &user.ValidationError{Field: "password", Message: "must differ from the username"}
+	case strings.EqualFold(password, email):
+		return &user.ValidationError{Field: "password", Message: "must differ from the email"}
 	}
 	return nil
 }
 
-// Attempt limits. Per username stops guessing one account; per client
+// Attempt limits. Per address stops guessing one account; per client IP
 // address stops spraying one password over many accounts.
 const (
 	loginPerUser    = 10
@@ -118,13 +132,13 @@ func (s *Service) allow(ctx context.Context, key string, limit int, window time.
 	return nil
 }
 
-// Register creates an account with a username the person chose, so unlike a
-// provider sign-up it needs no onboarding (IsNewUser stays false).
-func (s *Service) Register(ctx context.Context, username, password, device, client string) (Session, error) {
-	if err := user.ValidateUsername(username); err != nil {
+// Register creates the credentials first. The public username is set in onboarding.
+func (s *Service) Register(ctx context.Context, rawEmail, password, device, client string) (Session, error) {
+	email, err := normalizeEmail(rawEmail)
+	if err != nil {
 		return Session{}, err
 	}
-	if err := validatePassword(password, username); err != nil {
+	if err := validatePassword(password, email); err != nil {
 		return Session{}, err
 	}
 	if err := s.allow(ctx, "register:client:"+client, registerPerHour, time.Hour); err != nil {
@@ -134,25 +148,30 @@ func (s *Service) Register(ctx context.Context, username, password, device, clie
 	if err != nil {
 		return Session{}, err
 	}
-	u, err := s.store.createPasswordUser(ctx, username, hash)
+	u, err := s.store.createPasswordUser(ctx, email, hash)
 	if err != nil {
 		return Session{}, err
 	}
 	s.log.InfoContext(ctx, "user signed up", slog.Int64("user_id", u.ID), slog.String("provider", "password"))
-	return s.startSession(ctx, u, false, device)
+	return s.startSession(ctx, u, true, device)
 }
 
-// Login answers ErrInvalidCredentials for both an unknown username and a
+// Login answers ErrInvalidCredentials for both an unknown email and a
 // wrong password: the difference would tell an attacker which accounts exist.
-func (s *Service) Login(ctx context.Context, username, password, device, client string) (Session, error) {
-	if err := s.allow(ctx, "login:user:"+strings.ToLower(username), loginPerUser, loginWindow); err != nil {
-		return Session{}, err
-	}
+func (s *Service) Login(ctx context.Context, rawEmail, password, device, client string) (Session, error) {
 	if err := s.allow(ctx, "login:client:"+client, loginPerClient, loginWindow); err != nil {
 		return Session{}, err
 	}
+	email, err := normalizeEmail(rawEmail)
+	if err != nil {
+		return Session{}, ErrInvalidCredentials
+	}
+	key := fmt.Sprintf("login:email:%x", sha256.Sum256([]byte(email)))
+	if err := s.allow(ctx, key, loginPerUser, loginWindow); err != nil {
+		return Session{}, err
+	}
 
-	userID, hash, err := s.store.passwordHash(ctx, username)
+	userID, hash, err := s.store.passwordHash(ctx, email)
 	if errors.Is(err, user.ErrNotFound) {
 		verifyPassword(password, dummyHash)
 		return Session{}, ErrInvalidCredentials
@@ -165,6 +184,9 @@ func (s *Service) Login(ctx context.Context, username, password, device, client 
 	}
 
 	u, err := s.store.userByID(ctx, userID)
+	if errors.Is(err, user.ErrNotFound) {
+		return Session{}, ErrInvalidCredentials
+	}
 	if err != nil {
 		return Session{}, err
 	}

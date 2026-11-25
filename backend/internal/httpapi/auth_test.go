@@ -253,12 +253,42 @@ func TestPasswordAuthAPI(t *testing.T) {
 		auth.Config{RefreshTTL: time.Hour, RefreshGrace: 30 * time.Second}, discard)
 	c := client{t, NewRouter(Deps{Logger: discard, RequestTimeout: 5 * time.Second, Auth: svc, Users: user.NewStore(db)})}
 
-	status, session := c.call("POST", "/v1/auth/register", "", map[string]any{"username": "ivan", "password": "secret-pass", "device_name": "iPhone"})
-	if status != http.StatusCreated || session["is_new_user"] != false || session["user"].(map[string]any)["username"] != "ivan" {
+	testdb.CreateUser(t, db, "taken_user")
+	status, session := c.call("POST", "/v1/auth/register", "", map[string]any{"email": "ivan@example.com", "password": "secret-pass", "device_name": "iPhone"})
+	if status != http.StatusCreated || session["is_new_user"] != true || session["user"].(map[string]any)["username"] != "" {
 		t.Fatalf("register: %d %v", status, session)
 	}
-	if status, me := c.call("GET", "/v1/me", session["access_token"].(string), nil); status != http.StatusOK || me["username"] != "ivan" {
+	if _, exists := session["user"].(map[string]any)["email"]; exists {
+		t.Error("session should not include email in the profile")
+	}
+	token := session["access_token"].(string)
+	if status, me := c.call("GET", "/v1/me", token, nil); status != http.StatusOK || me["username"] != "" {
 		t.Errorf("me after register: %d %v", status, me)
+	}
+	if status, body := c.call("POST", "/v1/communities", token, nil); status != http.StatusForbidden || errCode(body) != "username_required" {
+		t.Errorf("social action before onboarding: %d %v", status, body)
+	}
+	if status, body := c.call("PATCH", "/v1/me", token, map[string]string{"display_name": "Ivan"}); status != http.StatusForbidden || errCode(body) != "username_required" {
+		t.Errorf("profile update without a nickname: %d %v", status, body)
+	}
+	if status, body := c.call("GET", "/v1/usernames/TAKEN_USER/availability", "", nil); status != http.StatusOK || body["reason"] != "taken" {
+		t.Errorf("taken nickname: %d %v", status, body)
+	}
+	if status, body := c.call("GET", "/v1/usernames/ivan/availability", "", nil); status != http.StatusOK || body["available"] != true {
+		t.Errorf("available nickname: %d %v", status, body)
+	}
+	if status, body := c.call("PATCH", "/v1/me", token, map[string]string{"username": "Taken_User"}); status != http.StatusConflict || errCode(body) != "username_taken" {
+		t.Errorf("save taken nickname: %d %v", status, body)
+	}
+	if status, body := c.call("GET", "/v1/usernames/late_claim/availability", "", nil); status != http.StatusOK || body["available"] != true {
+		t.Errorf("nickname before another account claims it: %d %v", status, body)
+	}
+	testdb.CreateUser(t, db, "late_claim")
+	if status, body := c.call("PATCH", "/v1/me", token, map[string]string{"username": "late_claim"}); status != http.StatusConflict || errCode(body) != "username_taken" {
+		t.Errorf("save after another account claims the nickname: %d %v", status, body)
+	}
+	if status, me := c.call("PATCH", "/v1/me", token, map[string]string{"username": "ivan"}); status != http.StatusOK || me["username"] != "ivan" {
+		t.Errorf("save nickname: %d %v", status, me)
 	}
 
 	tests := []struct {
@@ -268,12 +298,13 @@ func TestPasswordAuthAPI(t *testing.T) {
 		code   string
 		field  string
 	}{
-		{"/v1/auth/register", map[string]any{"username": "IVAN", "password": "secret-pass"}, http.StatusConflict, "username_taken", "username"},
-		{"/v1/auth/register", map[string]any{"username": "petr", "password": "short"}, http.StatusUnprocessableEntity, "validation_failed", "password"},
-		{"/v1/auth/register", map[string]any{"username": "ab", "password": "secret-pass"}, http.StatusUnprocessableEntity, "validation_failed", "username"},
-		{"/v1/auth/login", map[string]any{"username": "ivan", "password": "wrong-pass"}, http.StatusUnauthorized, "invalid_credentials", ""},
-		{"/v1/auth/login", map[string]any{"username": "nobody", "password": "secret-pass"}, http.StatusUnauthorized, "invalid_credentials", ""},
-		{"/v1/auth/login", map[string]any{"username": "Ivan", "password": "secret-pass"}, http.StatusOK, "", ""},
+		{"/v1/auth/register", map[string]any{"email": " IVAN@Example.com ", "password": "secret-pass"}, http.StatusConflict, "email_taken", "email"},
+		{"/v1/auth/register", map[string]any{"email": "petr@example.com", "password": "short"}, http.StatusUnprocessableEntity, "validation_failed", "password"},
+		{"/v1/auth/register", map[string]any{"email": "ab", "password": "secret-pass"}, http.StatusUnprocessableEntity, "validation_failed", "email"},
+		{"/v1/auth/login", map[string]any{"email": "ivan@example.com", "password": "wrong-pass"}, http.StatusUnauthorized, "invalid_credentials", ""},
+		{"/v1/auth/login", map[string]any{"email": "nobody@example.com", "password": "secret-pass"}, http.StatusUnauthorized, "invalid_credentials", ""},
+		{"/v1/auth/login", map[string]any{"username": "ivan", "password": "secret-pass"}, http.StatusUnauthorized, "invalid_credentials", ""},
+		{"/v1/auth/login", map[string]any{"email": "Ivan@Example.com", "password": "secret-pass"}, http.StatusOK, "", ""},
 	}
 	for _, tt := range tests {
 		status, body := c.call("POST", tt.path, "", tt.body)
@@ -281,6 +312,9 @@ func TestPasswordAuthAPI(t *testing.T) {
 		field, _ := e["field"].(string)
 		if status != tt.status || errCode(body) != tt.code || field != tt.field {
 			t.Errorf("%s %v: %d %v", tt.path, tt.body, status, body)
+		}
+		if status == http.StatusOK && (body["is_new_user"] != false || body["user"].(map[string]any)["username"] != "ivan") {
+			t.Errorf("login after onboarding: %v", body)
 		}
 	}
 }

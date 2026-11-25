@@ -32,20 +32,19 @@ public enum API {
     }
 
     private struct PasswordAuth: Encodable, Sendable {
-        let username: String
+        let email: String
         let password: String
         let deviceName: String
     }
 
-    /// Creates an account with a chosen username: no onboarding afterwards.
-    public static func register(username: String, password: String, deviceName: String) -> Endpoint<AuthSession> {
+    public static func register(email: String, password: String, deviceName: String) -> Endpoint<AuthSession> {
         Endpoint(.post, "/v1/auth/register",
-                 body: PasswordAuth(username: username, password: password, deviceName: deviceName), auth: .none)
+                 body: PasswordAuth(email: email, password: password, deviceName: deviceName), auth: .none)
     }
 
-    public static func login(username: String, password: String, deviceName: String) -> Endpoint<AuthSession> {
+    public static func login(email: String, password: String, deviceName: String) -> Endpoint<AuthSession> {
         Endpoint(.post, "/v1/auth/login",
-                 body: PasswordAuth(username: username, password: password, deviceName: deviceName), auth: .none)
+                 body: PasswordAuth(email: email, password: password, deviceName: deviceName), auth: .none)
     }
 
     private struct TelegramSignIn: Encodable, Sendable {
