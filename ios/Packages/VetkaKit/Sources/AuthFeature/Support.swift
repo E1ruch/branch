@@ -43,8 +43,8 @@ enum AuthErrorText {
             "На этот email уже есть аккаунт. Выберите «Вход»."
         case .server(_, "username_taken", _, _):
             "Этот ник уже занят"
-        case .server(_, "validation_failed", _, "username"):
-            "Ник: \(UsernameRule.hint)"
+        case .server(_, "validation_failed", let message, "username"):
+            UsernameRule.validationMessage(message)
         case .server(_, "validation_failed", _, "email"):
             "Введите корректный email"
         case .server(_, "validation_failed", _, "password"):

@@ -49,6 +49,7 @@ public struct AppRootView: View {
                            store: app.posts,
                            isSignedIn: app.session.state == .signedIn,
                            myName: app.session.me?.username,
+                           myAvatarURL: app.session.me?.avatarUrl,
                            open: { router.push($0) },
                            requestSignIn: { router.isAuthPresented = true },
                            openSearch: {

@@ -37,11 +37,18 @@ func TestProfileAPI(t *testing.T) {
 		t.Fatalf("me: %d %v", status, body)
 	}
 
-	for name, want := range map[string]string{"ivan": "", "Taken_Name": "taken", "ab": "invalid", "admin": "invalid"} {
+	for name, want := range map[string]string{
+		"ivan": "", "adminov": "", "vetka_reader": "", "Taken_Name": "taken", "ab": "invalid",
+		"admin": "invalid", "FoUnDeR": "invalid", "VETKA": "invalid", "Vetka_Support": "invalid",
+		"admin_123": "invalid", "adm1n": "invalid", "official_vetka": "invalid",
+	} {
 		_, body := c.call("GET", "/v1/usernames/"+name+"/availability", "", nil)
 		if reason, _ := body["reason"].(string); reason != want || body["available"] != (want == "") {
 			t.Errorf("availability %q: %v, want reason %q", name, body, want)
 		}
+	}
+	if status, body := c.call("PATCH", "/v1/me", me, map[string]any{"username": "Founder"}); status != http.StatusUnprocessableEntity || errCode(body) != "validation_failed" {
+		t.Fatalf("reserved nickname: %d %v", status, body)
 	}
 
 	status, body = c.call("PATCH", "/v1/me", me, map[string]any{"username": "ivan", "display_name": "Иван", "bio": "Привет"})

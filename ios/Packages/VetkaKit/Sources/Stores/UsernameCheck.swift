@@ -84,7 +84,7 @@ public final class UsernameCheck {
             switch (result.available, result.reason) {
             case (true, _): status = .available
             case (false, "taken"): status = .taken
-            default: status = .invalid(result.message.map(Self.translate) ?? UsernameRule.hint)
+            default: status = .invalid(UsernameRule.validationMessage(result.message))
             }
         } catch {
             if request == revision, !Task.isCancelled { status = .unknown }
@@ -94,9 +94,5 @@ public final class UsernameCheck {
     /// Saving found out the name was taken after all (a race).
     public func markTaken() {
         status = .taken
-    }
-
-    private static func translate(_ serverMessage: String) -> String {
-        serverMessage == "this name is reserved" ? "Этот ник зарезервирован" : UsernameRule.hint
     }
 }

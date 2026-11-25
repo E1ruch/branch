@@ -25,8 +25,6 @@ public struct CommunitiesView: View {
     public var body: some View {
         content
             .background(Color.vetkaBackground)
-            .navigationTitle("Сообщества")
-            .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 // No padding below: the pinned tabs bring their own.
                 SearchBar(text: bindable.query, prompt: "Найти сообщество", focused: $searchFocused)
@@ -34,6 +32,10 @@ public struct CommunitiesView: View {
                     .padding(.top, Spacing.s)
                     .background(Color.vetkaBackground)
             }
+            .navigationTitle("Сообщества")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
             .scrollDismissesKeyboard(.immediately)
             // Again on sign-in or out: subscriptions belong to the account.
             .task(id: isSignedIn) { await model.load(signedIn: isSignedIn) }
@@ -82,31 +84,28 @@ public struct CommunitiesView: View {
     /// list scrolls, each with its counter.
     private var discover: some View {
         List {
-            Section {
-                switch model.tab {
-                case .popular:
-                    rows(model.popular, paginated: true)
-                case .subscriptions:
-                    rows(model.subscriptionRows)
-                }
-            } header: {
-                PillPicker([
-                    (CommunitiesModel.Tab.popular, "Популярное", model.popularCount),
-                    (.subscriptions, "Подписки", model.subscriptionCount.map(String.init)),
-                ], selection: bindable.tab)
-                .animation(.vetkaSnappy, value: model.subscriptionCount)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, Spacing.l)
-                .padding(.vertical, Spacing.s)
-                .background(Color.vetkaBackground)
-                .listRowInsets(EdgeInsets())
-                .textCase(nil)
+            switch model.tab {
+            case .popular:
+                rows(model.popular, paginated: true)
+            case .subscriptions:
+                rows(model.subscriptionRows)
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable { await model.load(signedIn: isSignedIn) }
         .overlay { emptyState }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            PillPicker([
+                (CommunitiesModel.Tab.popular, "Популярное", model.popularCount),
+                (.subscriptions, "Подписки", model.subscriptionCount.map(String.init)),
+            ], selection: bindable.tab)
+            .animation(.vetkaSnappy, value: model.subscriptionCount)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Spacing.l)
+            .padding(.vertical, Spacing.s)
+            .background(Color.vetkaBackground)
+        }
     }
 
     @ViewBuilder

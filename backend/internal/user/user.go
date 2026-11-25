@@ -80,11 +80,29 @@ func scan(row pgx.Row, extra ...any) (User, error) {
 // Same rule as the users.username CHECK constraint.
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,24}$`)
 
-// Names people would take for staff or for the system itself.
+// System names and internal accounts.
 var reservedUsernames = map[string]bool{
-	"admin": true, "administrator": true, "moderator": true, "mod": true,
-	"support": true, "help": true, "official": true, "vetka": true, "system": true,
-	"root": true, "me": true, "null": true, "undefined": true, "anonymous": true,
+	"me": true, "null": true, "undefined": true, "anonymous": true,
+}
+
+// Staff titles are reserved on their own and alongside the platform name.
+var staffUsernames = map[string]bool{
+	"admin": true, "admins": true, "administrator": true, "administration": true,
+	"moderator": true, "moderators": true, "moderation": true, "mod": true,
+	"founder": true, "cofounder": true, "creator": true, "owner": true, "ceo": true,
+	"support": true, "help": true, "helpdesk": true, "official": true,
+	"staff": true, "team": true, "system": true, "root": true, "security": true,
+	"administratsiya": true, "moderatsiya": true, "podderzhka": true,
+	"osnovatel": true, "sozdatel": true, "komanda": true, "ofitsialno": true,
+}
+
+var staffNameLookalikes = strings.NewReplacer("0", "o", "1", "i", "3", "e", "4", "a", "5", "s", "7", "t")
+
+func looksLikeStaff(name string) bool {
+	if name == "vetka" || name == "vetkaapp" || staffUsernames[name] {
+		return true
+	}
+	return staffUsernames[strings.TrimPrefix(name, "vetka")] || staffUsernames[strings.TrimSuffix(name, "vetka")]
 }
 
 // ValidateUsername checks a name a person chose or a provider suggested.
@@ -94,7 +112,10 @@ func ValidateUsername(name string) error {
 		return &ValidationError{"username", "3-24 latin letters, digits or underscores"}
 	}
 	lower := strings.ToLower(name)
-	if reservedUsernames[lower] || strings.HasPrefix(lower, "deleted_") {
+	compact := strings.ReplaceAll(lower, "_", "")
+	withoutNumber := strings.Trim(compact, "0123456789")
+	if reservedUsernames[lower] || strings.HasPrefix(lower, "deleted_") ||
+		looksLikeStaff(withoutNumber) || looksLikeStaff(staffNameLookalikes.Replace(compact)) {
 		return &ValidationError{"username", "this name is reserved"}
 	}
 	return nil

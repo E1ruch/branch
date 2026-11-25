@@ -11,6 +11,7 @@ public struct FeedScreen: View {
     private let store: PostStore
     private let isSignedIn: Bool
     private let myName: String?
+    private let myAvatarURL: URL?
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
     private let openSearch: () -> Void
@@ -18,7 +19,7 @@ public struct FeedScreen: View {
     private let openProfile: () -> Void
     @State private var kind: FeedKind = .hot
 
-    public init(service: any FeedService, store: PostStore, isSignedIn: Bool, myName: String?,
+    public init(service: any FeedService, store: PostStore, isSignedIn: Bool, myName: String?, myAvatarURL: URL? = nil,
                 open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void,
                 openSearch: @escaping () -> Void, openActivity: @escaping () -> Void,
                 openProfile: @escaping () -> Void) {
@@ -26,6 +27,7 @@ public struct FeedScreen: View {
         self.store = store
         self.isSignedIn = isSignedIn
         self.myName = myName
+        self.myAvatarURL = myAvatarURL
         self.open = open
         self.requestSignIn = requestSignIn
         self.openSearch = openSearch
@@ -67,7 +69,7 @@ public struct FeedScreen: View {
 
                     Button(action: isSignedIn ? openProfile : requestSignIn) {
                         if let myName {
-                            AvatarView(name: myName, size: 30)
+                            AvatarView(name: myName, size: 30, imageURL: myAvatarURL)
                         } else {
                             Image(systemName: "person.crop.circle")
                                 .font(.system(size: 22))

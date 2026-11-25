@@ -154,7 +154,7 @@ public final class EditProfileModel {
         switch error {
         case .server(_, "username_taken", _, _): "Этот ник уже занят"
         case .server(_, "username_change_too_soon", _, _): "Ник можно менять раз в 30 дней"
-        case .server(_, "validation_failed", _, "username"): "Ник: \(UsernameRule.hint)"
+        case .server(_, "validation_failed", let message, "username"): UsernameRule.validationMessage(message)
         case .server(_, "validation_failed", _, "avatar_media_id"): "Не удалось сохранить фото. Попробуйте ещё раз."
         case .server(_, "validation_failed", _, _): "Слишком длинный текст"
         case .transport: "Нет соединения с сервером"

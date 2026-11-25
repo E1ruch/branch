@@ -6,4 +6,8 @@ public enum UsernameRule {
     public static func isValid(_ name: String) -> Bool {
         name.wholeMatch(of: /[A-Za-z0-9_]{3,24}/) != nil
     }
+
+    public static func validationMessage(_ serverMessage: String?) -> String {
+        serverMessage == "this name is reserved" ? "Этот ник зарезервирован" : hint
+    }
 }
