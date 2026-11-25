@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vetka/internal/config"
+	"vetka/internal/media"
 	"vetka/internal/platform/logging"
 	"vetka/internal/platform/postgres"
 	"vetka/internal/search"
@@ -53,6 +55,23 @@ func run() error {
 		return err
 	}
 	defer db.Close()
+
+	if cfg, enabled := cfg.MediaStorage(); enabled {
+		storage, err := media.NewStorage(cfg)
+		if err != nil {
+			return fmt.Errorf("media storage: %w", err)
+		}
+		gcCtx, stopGC := context.WithCancel(ctx)
+		gcDone := make(chan struct{})
+		go func() {
+			defer close(gcDone)
+			collectMedia(gcCtx, media.NewService(db, storage, nil), log)
+		}()
+		defer func() {
+			stopGC()
+			<-gcDone
+		}()
+	}
 
 	log.Info("worker started", slog.Duration("flush_interval", flushInterval))
 	ticker := time.NewTicker(flushInterval)
@@ -106,6 +125,25 @@ func flushVotes(ctx context.Context, db *pgxpool.Pool, log *slog.Logger) {
 		}
 		if n < flushBatch {
 			return
+		}
+	}
+}
+
+// Media I/O runs on its own schedule so a slow bucket can't delay votes.
+func collectMedia(ctx context.Context, svc *media.Service, log *slog.Logger) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := svc.Sweep(sweepCtx)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.ErrorContext(ctx, "collect media", slog.Any("err", err))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

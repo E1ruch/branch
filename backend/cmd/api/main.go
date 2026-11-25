@@ -18,6 +18,7 @@ import (
 	"vetka/internal/community"
 	"vetka/internal/config"
 	"vetka/internal/httpapi"
+	"vetka/internal/media"
 	"vetka/internal/platform/logging"
 	"vetka/internal/platform/postgres"
 	"vetka/internal/platform/redis"
@@ -57,6 +58,15 @@ func run() error {
 	}
 	defer rdb.Close()
 
+	var mediaSvc *media.Service
+	if cfg, enabled := cfg.MediaStorage(); enabled {
+		storage, err := media.NewStorage(cfg)
+		if err != nil {
+			return fmt.Errorf("media storage: %w", err)
+		}
+		mediaSvc = media.NewService(db, storage, redis.Limiter{Client: rdb})
+	}
+
 	signingKey := cfg.JWTSigningKey
 	if signingKey == nil {
 		_, signingKey, _ = ed25519.GenerateKey(nil)
@@ -95,6 +105,7 @@ func run() error {
 			Votes:         vote.NewService(db, redis.Limiter{Client: rdb}),
 			Comments:      comment.NewService(db, redis.Limiter{Client: rdb}),
 			Search:        search.NewService(db),
+			Media:         mediaSvc,
 			SearchLimiter: redis.Limiter{Client: rdb},
 			FollowLimiter: redis.Limiter{Client: rdb},
 			TelegramBot:   cfg.TelegramBotUsername,

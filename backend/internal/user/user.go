@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"vetka/internal/media"
 )
 
 var (
@@ -34,6 +36,7 @@ type User struct {
 	ID           int64
 	Username     string
 	DisplayName  *string
+	AvatarKey    *string
 	Bio          *string
 	PostKarma    int
 	CommentKarma int
@@ -55,7 +58,7 @@ const (
 
 // Columns is the select list matching Scan, for queries in other packages
 // that return users (sign-up, for one).
-const Columns = `id, COALESCE(username::text, '') AS username, display_name, bio, post_karma, comment_karma, created_at,
+const Columns = `id, COALESCE(username::text, '') AS username, display_name, avatar_key, bio, post_karma, comment_karma, created_at,
 	posts_count, followers_count, following_count,
 	username_changed_at + interval '30 days'`
 
@@ -66,7 +69,7 @@ func Scan(row pgx.Row) (User, error) {
 // scan reads Columns, then the extra destinations a query selects after them.
 func scan(row pgx.Row, extra ...any) (User, error) {
 	var u User
-	err := row.Scan(append([]any{&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.PostKarma, &u.CommentKarma,
+	err := row.Scan(append([]any{&u.ID, &u.Username, &u.DisplayName, &u.AvatarKey, &u.Bio, &u.PostKarma, &u.CommentKarma,
 		&u.CreatedAt, &u.PostsCount, &u.FollowersCount, &u.FollowingCount, &u.UsernameChangeableAt}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -215,9 +218,10 @@ func (s *Store) UsernameAvailable(ctx context.Context, name string) error {
 // UpdateInput changes only the non-nil fields. An empty display name or bio
 // clears it.
 type UpdateInput struct {
-	Username    *string
-	DisplayName *string
-	Bio         *string
+	Username      *string
+	DisplayName   *string
+	Bio           *string
+	AvatarMediaID *int64
 }
 
 func (s *Store) Update(ctx context.Context, id int64, in UpdateInput) (User, error) {
@@ -269,13 +273,22 @@ func (s *Store) Update(ctx context.Context, id int64, in UpdateInput) (User, err
 		}
 	}
 
-	if in.DisplayName != nil || in.Bio != nil {
+	refs, err := media.LockOwnedReady(ctx, tx, id, media.OptionalIDs(in.AvatarMediaID))
+	if err != nil {
+		return User{}, err
+	}
+	avatarKey, err := media.OptionalKey(refs, in.AvatarMediaID)
+	if err != nil {
+		return User{}, &ValidationError{"avatar_media_id", "image is not available"}
+	}
+	if in.DisplayName != nil || in.Bio != nil || in.AvatarMediaID != nil {
 		if _, err := tx.Exec(ctx, `
 			UPDATE users SET
 				display_name = CASE WHEN $2 THEN $3 ELSE display_name END,
-				bio          = CASE WHEN $4 THEN $5 ELSE bio END
+				bio          = CASE WHEN $4 THEN $5 ELSE bio END,
+				avatar_key   = CASE WHEN $6 THEN $7 ELSE avatar_key END
 			WHERE id = $1`,
-			id, in.DisplayName != nil, displayName, in.Bio != nil, bio); err != nil {
+			id, in.DisplayName != nil, displayName, in.Bio != nil, bio, in.AvatarMediaID != nil, avatarKey); err != nil {
 			return User{}, err
 		}
 	}

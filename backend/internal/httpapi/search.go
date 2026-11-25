@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"vetka/internal/media"
 	"vetka/internal/search"
 	"vetka/internal/user"
 )
@@ -16,6 +17,7 @@ import (
 type searchHandlers struct {
 	svc   *search.Service
 	users *user.Store
+	media *media.Service
 	posts *postHandlers // search results are a feed page like any other
 	log   *slog.Logger
 }
@@ -68,7 +70,7 @@ func (h *searchHandlers) people(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := page[userDTO]{Items: make([]userDTO, len(items))}
 	for i, u := range items {
-		resp.Items[i] = toUserDTO(u)
+		resp.Items[i] = toUserDTO(u, h.media)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

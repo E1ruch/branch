@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"vetka/internal/media"
 	"vetka/internal/ranking"
 )
 
@@ -56,6 +57,7 @@ type Post struct {
 	Community CommunityRef
 	Author    *AuthorRef // nil when the account is deleted
 	Story     *StoryRef  // nil when the post is not part of a story
+	Images    []media.Image
 }
 
 // StoryRef places a post in its story. Part and Parts count live parts
@@ -67,15 +69,17 @@ type StoryRef struct {
 }
 
 type CommunityRef struct {
-	ID    int64
-	Slug  string
-	Title string
+	ID      int64
+	Slug    string
+	Title   string
+	IconKey *string
 }
 
 type AuthorRef struct {
 	ID          int64
 	Username    string
 	DisplayName *string
+	AvatarKey   *string
 }
 
 const (
@@ -112,9 +116,9 @@ func selectPost(preview bool) string {
 	return `
 	SELECT p.id, p.title, ` + body + `,
 	       p.is_nsfw, p.score, p.comment_count, COALESCE(v.value, 0), p.hot_rank, p.created_at, p.edited_at,
-	       c.id, c.slug, c.title,
-	       u.id, u.username, u.display_name,
-	       p.story_id, st.part, st.parts
+	       c.id, c.slug, c.title, c.icon_key,
+	       u.id, u.username, u.display_name, u.avatar_key,
+	       p.story_id, st.part, st.parts, ` + media.PostImagesSQL + `
 	FROM %s p
 	JOIN communities c ON c.id = p.community_id
 	LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL
@@ -131,14 +135,15 @@ func scan(row pgx.Row) (Post, error) {
 		authorID    *int64
 		username    *string
 		displayName *string
+		avatarKey   *string
 		storyID     *int64
 		part, parts *int
 	)
 	err := row.Scan(&p.ID, &p.Title, &p.Body, &p.BodyTruncated,
 		&p.IsNSFW, &p.Score, &p.CommentCount, &p.MyVote, &p.HotRank, &p.CreatedAt, &p.EditedAt,
-		&p.Community.ID, &p.Community.Slug, &p.Community.Title,
-		&authorID, &username, &displayName,
-		&storyID, &part, &parts)
+		&p.Community.ID, &p.Community.Slug, &p.Community.Title, &p.Community.IconKey,
+		&authorID, &username, &displayName, &avatarKey,
+		&storyID, &part, &parts, &p.Images)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Post{}, ErrNotFound
 	}
@@ -146,7 +151,7 @@ func scan(row pgx.Row) (Post, error) {
 		return Post{}, err
 	}
 	if authorID != nil {
-		p.Author = &AuthorRef{ID: *authorID, Username: *username, DisplayName: displayName}
+		p.Author = &AuthorRef{ID: *authorID, Username: *username, DisplayName: displayName, AvatarKey: avatarKey}
 	}
 	if storyID != nil && part != nil && parts != nil {
 		p.Story = &StoryRef{ID: *storyID, Part: *part, Parts: *parts}
@@ -161,9 +166,10 @@ func (s *Service) Get(ctx context.Context, id, viewer int64) (Post, error) {
 }
 
 type CreateInput struct {
-	Title  string
-	Body   string
-	IsNSFW bool
+	Title    string
+	Body     string
+	IsNSFW   bool
+	MediaIDs []int64
 	// The author's post this one continues: the new post becomes the last
 	// part of its story (a story is started if there is none yet).
 	ContinuesPostID *int64
@@ -226,6 +232,12 @@ func (s *Service) Create(ctx context.Context, authorID int64, communitySlug stri
 	).Scan(&id); err != nil {
 		return Post{}, err
 	}
+	if err := media.AttachPost(ctx, tx, authorID, id, in.MediaIDs); err != nil {
+		if errors.Is(err, media.ErrInvalidID) {
+			return Post{}, &ValidationError{"media_ids", "choose up to four distinct images that are ready to attach"}
+		}
+		return Post{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Post{}, err
 	}
@@ -282,6 +294,7 @@ type StoryPart struct {
 	Title     string
 	Part      int // among live parts, from 1
 	CreatedAt time.Time
+	Images    []media.Image
 }
 
 // StoryParts lists the story of postID in order, deleted parts left out.
@@ -301,8 +314,8 @@ func (s *Service) StoryParts(ctx context.Context, postID int64) ([]StoryPart, er
 		return out, nil
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT id, title, row_number() OVER (ORDER BY story_part), created_at
-		FROM posts WHERE story_id = $1 AND deleted_at IS NULL
+		SELECT id, title, row_number() OVER (ORDER BY story_part), created_at, `+media.PostImagesSQL+`
+		FROM posts p WHERE story_id = $1 AND deleted_at IS NULL
 		ORDER BY story_part`, *storyID)
 	if err != nil {
 		return nil, err
@@ -310,7 +323,7 @@ func (s *Service) StoryParts(ctx context.Context, postID int64) ([]StoryPart, er
 	defer rows.Close()
 	for rows.Next() {
 		var p StoryPart
-		if err := rows.Scan(&p.PostID, &p.Title, &p.Part, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.PostID, &p.Title, &p.Part, &p.CreatedAt, &p.Images); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

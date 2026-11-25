@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"vetka/internal/auth"
+	"vetka/internal/media"
 	"vetka/internal/user"
 )
 
 type authHandlers struct {
-	svc *auth.Service
-	log *slog.Logger
+	svc   *auth.Service
+	media *media.Service
+	log   *slog.Logger
 }
 
 type tokensResponse struct {
@@ -33,6 +35,7 @@ type userDTO struct {
 	ID           int64     `json:"id"`
 	Username     string    `json:"username"`
 	DisplayName  *string   `json:"display_name"`
+	AvatarURL    string    `json:"avatar_url,omitempty"`
 	Bio          *string   `json:"bio"`
 	PostKarma    int       `json:"post_karma"`
 	CommentKarma int       `json:"comment_karma"`
@@ -43,11 +46,12 @@ type userDTO struct {
 	FollowingCount int `json:"following_count"`
 }
 
-func toUserDTO(u user.User) userDTO {
+func toUserDTO(u user.User, images *media.Service) userDTO {
 	return userDTO{
 		ID:           u.ID,
 		Username:     u.Username,
 		DisplayName:  u.DisplayName,
+		AvatarURL:    optionalImageURL(images, u.AvatarKey, 320),
 		Bio:          u.Bio,
 		PostKarma:    u.PostKarma,
 		CommentKarma: u.CommentKarma,
@@ -63,8 +67,8 @@ func toTokensResponse(t auth.Tokens) tokensResponse {
 	return tokensResponse{AccessToken: t.AccessToken, AccessExpiresAt: t.AccessExpiresAt, RefreshToken: t.RefreshToken}
 }
 
-func toSessionResponse(s auth.Session) sessionResponse {
-	return sessionResponse{tokensResponse: toTokensResponse(s.Tokens), User: toUserDTO(s.User), IsNewUser: s.IsNewUser}
+func (h *authHandlers) toSessionResponse(s auth.Session) sessionResponse {
+	return sessionResponse{tokensResponse: toTokensResponse(s.Tokens), User: toUserDTO(s.User, h.media), IsNewUser: s.IsNewUser}
 }
 
 func (h *authHandlers) apple(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +93,7 @@ func (h *authHandlers) apple(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toSessionResponse(session))
+	writeJSON(w, http.StatusOK, h.toSessionResponse(session))
 }
 
 func (h *authHandlers) telegram(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +110,7 @@ func (h *authHandlers) telegram(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toSessionResponse(session))
+	writeJSON(w, http.StatusOK, h.toSessionResponse(session))
 }
 
 type refreshRequest struct {
@@ -155,7 +159,7 @@ func (h *authHandlers) register(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toSessionResponse(session))
+	writeJSON(w, http.StatusCreated, h.toSessionResponse(session))
 }
 
 // login: POST /v1/auth/login {"email", "password", "device_name"}.
@@ -169,7 +173,7 @@ func (h *authHandlers) login(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toSessionResponse(session))
+	writeJSON(w, http.StatusOK, h.toSessionResponse(session))
 }
 
 // clientAddr identifies the client for attempt limits. The API is not behind

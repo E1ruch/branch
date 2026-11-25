@@ -12,6 +12,7 @@ import (
 	"vetka/internal/auth"
 	"vetka/internal/comment"
 	"vetka/internal/community"
+	"vetka/internal/media"
 	"vetka/internal/post"
 	"vetka/internal/search"
 	"vetka/internal/user"
@@ -30,6 +31,7 @@ type Deps struct {
 	Votes       *vote.Service
 	Comments    *comment.Service
 	Search      *search.Service
+	Media       *media.Service
 	// Caps search requests; nil (tests) leaves them uncapped.
 	SearchLimiter Limiter
 	// Caps follow changes per account; nil leaves them uncapped.
@@ -43,15 +45,16 @@ type Deps struct {
 }
 
 func NewRouter(d Deps) http.Handler {
-	authH := &authHandlers{svc: d.Auth, log: d.Logger}
-	commH := &communityHandlers{svc: d.Communities, log: d.Logger}
-	postH := &postHandlers{svc: d.Posts, log: d.Logger}
+	authH := &authHandlers{svc: d.Auth, media: d.Media, log: d.Logger}
+	commH := &communityHandlers{svc: d.Communities, media: d.Media, log: d.Logger}
+	postH := &postHandlers{svc: d.Posts, media: d.Media, log: d.Logger}
 	voteH := &voteHandlers{svc: d.Votes, log: d.Logger}
-	commentH := &commentHandlers{svc: d.Comments, log: d.Logger}
-	searchH := &searchHandlers{svc: d.Search, users: d.Users, posts: postH, log: d.Logger}
+	commentH := &commentHandlers{svc: d.Comments, media: d.Media, log: d.Logger}
+	searchH := &searchHandlers{svc: d.Search, users: d.Users, posts: postH, media: d.Media, log: d.Logger}
 	searchLimit := limitSearch(d.SearchLimiter, d.Logger)
 	followLimit := limitFollows(d.FollowLimiter, d.Logger)
-	userH := &userHandlers{users: d.Users, posts: postH, comments: d.Comments, log: d.Logger}
+	userH := &userHandlers{users: d.Users, posts: postH, comments: d.Comments, media: d.Media, log: d.Logger}
+	mediaH := &mediaHandlers{svc: d.Media, log: d.Logger}
 	tg := telegramPage{botUsername: d.TelegramBot, botToken: d.TelegramToken, fake: d.TelegramFake,
 		publicBaseURL: d.PublicBaseURL, appScheme: d.AppScheme}
 
@@ -91,6 +94,9 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/refresh", authH.refresh)
 				r.Post("/logout", authH.logout)
 			})
+
+			r.With(requireAuth).Post("/media/uploads", mediaH.begin)
+			r.With(requireAuth).Post("/media/{id}/complete", mediaH.complete)
 
 			r.Route("/me", func(r chi.Router) {
 				r.Use(requireAuth)

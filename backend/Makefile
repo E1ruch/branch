@@ -6,13 +6,16 @@ export
 
 COMPOSE := docker compose -f ../infra/docker-compose.yml
 
-.PHONY: infra-up infra-down migrate run worker test vet
+.PHONY: infra-up media-up infra-down migrate run worker test vet
 
 infra-up:
 	$(COMPOSE) up -d --wait
 
+media-up:
+	$(COMPOSE) --profile media up -d --wait minio imgproxy
+
 infra-down:
-	$(COMPOSE) down
+	$(COMPOSE) --profile media down
 
 migrate:
 	go run ./cmd/migrate up

@@ -15,6 +15,7 @@ public struct User: Codable, Sendable, Hashable, Identifiable {
     public let postsCount: Int
     public let followersCount: Int
     public let followingCount: Int
+    public let avatarUrl: URL?
 }
 
 /// The signed-in user's own profile: the public one plus owner-only fields.
@@ -32,6 +33,7 @@ public struct Me: Codable, Sendable, Hashable, Identifiable {
     public let followingCount: Int
     /// When a new username can be picked; nil means now.
     public let usernameChangeableAt: Date?
+    public let avatarUrl: URL?
 }
 
 /// Someone's profile as the viewer sees it (GET /v1/users/{username}).
@@ -48,9 +50,11 @@ public struct Profile: Codable, Sendable, Hashable, Identifiable {
     public let followingCount: Int
     /// Always false for yourself and when signed out.
     public let isFollowing: Bool
+    public let avatarUrl: URL?
 
     public init(id: Int64, username: String, displayName: String?, bio: String?, postKarma: Int, commentKarma: Int,
-                createdAt: Date, postsCount: Int, followersCount: Int, followingCount: Int, isFollowing: Bool) {
+                createdAt: Date, postsCount: Int, followersCount: Int, followingCount: Int, isFollowing: Bool,
+                avatarUrl: URL? = nil) {
         self.id = id
         self.username = username
         self.displayName = displayName
@@ -62,6 +66,7 @@ public struct Profile: Codable, Sendable, Hashable, Identifiable {
         self.followersCount = followersCount
         self.followingCount = followingCount
         self.isFollowing = isFollowing
+        self.avatarUrl = avatarUrl
     }
 
     /// Your own profile, known before the request for it returns.
@@ -69,7 +74,7 @@ public struct Profile: Codable, Sendable, Hashable, Identifiable {
         self.init(id: me.id, username: me.username, displayName: me.displayName, bio: me.bio,
                   postKarma: me.postKarma, commentKarma: me.commentKarma, createdAt: me.createdAt,
                   postsCount: me.postsCount, followersCount: me.followersCount,
-                  followingCount: me.followingCount, isFollowing: false)
+                  followingCount: me.followingCount, isFollowing: false, avatarUrl: me.avatarUrl)
     }
 
     /// What the header shows first: the display name, else the username.
@@ -83,7 +88,8 @@ public struct Profile: Codable, Sendable, Hashable, Identifiable {
     public func with(isFollowing: Bool, followersCount: Int) -> Profile {
         Profile(id: id, username: username, displayName: displayName, bio: bio, postKarma: postKarma,
                 commentKarma: commentKarma, createdAt: createdAt, postsCount: postsCount,
-                followersCount: followersCount, followingCount: followingCount, isFollowing: isFollowing)
+                followersCount: followersCount, followingCount: followingCount, isFollowing: isFollowing,
+                avatarUrl: avatarUrl)
     }
 
     /// A copy with another "подписки" count: you followed someone from
@@ -91,7 +97,8 @@ public struct Profile: Codable, Sendable, Hashable, Identifiable {
     public func with(followingCount: Int) -> Profile {
         Profile(id: id, username: username, displayName: displayName, bio: bio, postKarma: postKarma,
                 commentKarma: commentKarma, createdAt: createdAt, postsCount: postsCount,
-                followersCount: followersCount, followingCount: followingCount, isFollowing: isFollowing)
+                followersCount: followersCount, followingCount: followingCount, isFollowing: isFollowing,
+                avatarUrl: avatarUrl)
     }
 }
 
@@ -108,9 +115,21 @@ public struct Community: Codable, Sendable, Hashable, Identifiable {
     /// Only a single community (GET /v1/communities/{slug}) carries its
     /// rules; in lists this is nil, meaning "not loaded", not "none".
     public let rules: [CommunityRule]?
+    public let iconUrl: URL?
+    public let bannerUrl: URL?
+    private let canEditMedia: Bool?
+
+    public var canEdit: Bool { canEditMedia ?? false }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, slug, title, description, isNsfw, subscribersCount, createdAt, isSubscribed, viewerRole, rules
+        case iconUrl, bannerUrl
+        case canEditMedia = "canEdit"
+    }
 
     public init(id: Int64, slug: String, title: String, description: String, isNsfw: Bool, subscribersCount: Int,
-                createdAt: Date, isSubscribed: Bool, viewerRole: String?, rules: [CommunityRule]?) {
+                createdAt: Date, isSubscribed: Bool, viewerRole: String?, rules: [CommunityRule]?,
+                iconUrl: URL? = nil, bannerUrl: URL? = nil, canEdit: Bool? = nil) {
         self.id = id
         self.slug = slug
         self.title = title
@@ -121,6 +140,9 @@ public struct Community: Codable, Sendable, Hashable, Identifiable {
         self.isSubscribed = isSubscribed
         self.viewerRole = viewerRole
         self.rules = rules
+        self.iconUrl = iconUrl
+        self.bannerUrl = bannerUrl
+        self.canEditMedia = canEdit
     }
 }
 
@@ -139,17 +161,36 @@ public struct CommunityRef: Codable, Sendable, Hashable {
     public let id: Int64
     public let slug: String
     public let title: String
+    public let iconUrl: URL?
 }
 
 public struct AuthorRef: Codable, Sendable, Hashable {
     public let id: Int64
     public let username: String
     public let displayName: String?
+    public let avatarUrl: URL?
 
-    public init(id: Int64, username: String, displayName: String?) {
+    public init(id: Int64, username: String, displayName: String?, avatarUrl: URL? = nil) {
         self.id = id
         self.username = username
         self.displayName = displayName
+        self.avatarUrl = avatarUrl
+    }
+}
+
+public struct Media: Codable, Sendable, Hashable, Identifiable {
+    public let id: Int64
+    public let width: Int
+    public let height: Int
+    public let thumbhash: String
+    public let urls: [String: URL]
+
+    public init(id: Int64, width: Int, height: Int, thumbhash: String, urls: [String: URL]) {
+        self.id = id
+        self.width = width
+        self.height = height
+        self.thumbhash = thumbhash
+        self.urls = urls
     }
 }
 
@@ -170,6 +211,15 @@ public struct Post: Codable, Sendable, Hashable, Identifiable {
     public let author: AuthorRef?
     /// Where the post stands in its story; nil outside a story.
     public let story: StoryRef?
+    private let mediaItems: [Media]?
+
+    public var media: [Media] { mediaItems ?? [] }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, body, bodyTruncated, isNsfw, score, commentCount, myVote, createdAt, editedAt
+        case community, author, story
+        case mediaItems = "media"
+    }
 }
 
 /// "Часть 2 из 3": counts live parts only.
@@ -323,14 +373,14 @@ extension Post {
     public func with(myVote: Int, score: Int) -> Post {
         Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
-             editedAt: editedAt, community: community, author: author, story: story)
+             editedAt: editedAt, community: community, author: author, story: story, mediaItems: mediaItems)
     }
 
     /// A copy with another comment count: a comment was just posted.
     public func with(commentCount: Int) -> Post {
         Post(id: id, title: title, body: body, bodyTruncated: bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
-             editedAt: editedAt, community: community, author: author, story: story)
+             editedAt: editedAt, community: community, author: author, story: story, mediaItems: mediaItems)
     }
 
     /// The same post with the body and edit time of `other`: a feed's
@@ -338,7 +388,7 @@ extension Post {
     func with(contentOf other: Post) -> Post {
         Post(id: id, title: title, body: other.body, bodyTruncated: other.bodyTruncated, isNsfw: isNsfw,
              score: score, commentCount: commentCount, myVote: myVote, createdAt: createdAt,
-             editedAt: other.editedAt, community: community, author: author, story: story)
+             editedAt: other.editedAt, community: community, author: author, story: story, mediaItems: mediaItems)
     }
 
     /// Merges a newer copy from the server, keeping a full body over a
@@ -357,7 +407,7 @@ extension Community {
     public func with(isSubscribed: Bool, subscribersCount: Int) -> Community {
         Community(id: id, slug: slug, title: title, description: description, isNsfw: isNsfw,
                   subscribersCount: subscribersCount, createdAt: createdAt, isSubscribed: isSubscribed,
-                  viewerRole: viewerRole, rules: rules)
+                  viewerRole: viewerRole, rules: rules, iconUrl: iconUrl, bannerUrl: bannerUrl, canEdit: canEditMedia)
     }
 
     /// Merges a newer copy from the server: a list entry (no rules) keeps
@@ -366,7 +416,8 @@ extension Community {
         guard newer.rules == nil, let rules else { return newer }
         return Community(id: newer.id, slug: newer.slug, title: newer.title, description: newer.description,
                          isNsfw: newer.isNsfw, subscribersCount: newer.subscribersCount, createdAt: newer.createdAt,
-                         isSubscribed: newer.isSubscribed, viewerRole: newer.viewerRole, rules: rules)
+                         isSubscribed: newer.isSubscribed, viewerRole: newer.viewerRole, rules: rules,
+                         iconUrl: newer.iconUrl, bannerUrl: newer.bannerUrl, canEdit: newer.canEditMedia ?? canEditMedia)
     }
 }
 

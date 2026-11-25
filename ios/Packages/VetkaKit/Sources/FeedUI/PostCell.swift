@@ -28,6 +28,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let moreButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
+    private let photos = PostImagesView()
     private let votes = VoteControl()
     private let commentsButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
@@ -71,7 +72,8 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         shareButton.addAction(UIAction { [weak self] _ in self?.onAction?(.share) }, for: .touchUpInside)
         votes.onVote = { [weak self] direction in self?.onAction?(.vote(direction)) }
 
-        for view in [avatar, moreButton, votes, commentsButton, shareButton, gapView] as [UIView] {
+        photos.isUserInteractionEnabled = false
+        for view in [photos, avatar, moreButton, votes, commentsButton, shareButton, gapView] as [UIView] {
             contentView.addSubview(view)
         }
 
@@ -80,7 +82,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         contentView.addGestureRecognizer(pan)
 
         isAccessibilityElement = false
-        contentView.accessibilityElements = [titleLabel, authorLabel, metaLabel, bodyLabel, votes, commentsButton, shareButton, moreButton]
+        contentView.accessibilityElements = [titleLabel, authorLabel, metaLabel, bodyLabel, photos, votes, commentsButton, shareButton, moreButton]
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -88,7 +90,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     func configure(post: Post, layout: PostLayout, fonts: FeedFonts, animateVote: Bool) {
         self.layout = layout
         myVote = post.myVote
-        avatar.configure(name: layout.author)
+        avatar.configure(name: layout.author, imageURL: post.author?.avatarUrl)
         authorLabel.font = fonts.author
         authorLabel.text = layout.author
         if let story = layout.storyLabel {
@@ -110,6 +112,8 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bodyLabel.text = layout.bodyText
         bodyLabel.numberOfLines = layout.bodyLines
         bodyLabel.isHidden = layout.bodyText.isEmpty
+        let size = post.media.count == 1 ? "1080" : "640"
+        photos.configure(post.media.map { ($0.urls[size], $0.thumbhash) }, isPreview: true)
 
         var comments = AttributeContainer()
         comments.font = fonts.footer
@@ -143,6 +147,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         moreButton.frame = layout.moreFrame
         titleLabel.frame = layout.titleFrame
         bodyLabel.frame = layout.bodyFrame
+        photos.place(in: contentView.bounds, frames: layout.mediaFrames)
         let footer = layout.footerFrame
         votes.frame = CGRect(x: footer.minX, y: footer.minY, width: VoteControl.width, height: footer.height)
         commentsButton.frame = CGRect(x: votes.frame.maxX + 10, y: footer.minY, width: 80, height: footer.height)
@@ -166,6 +171,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     override func prepareForReuse() {
         super.prepareForReuse()
         onAction = nil
+        photos.configure([], isPreview: true)
         contentView.transform = .identity
     }
 

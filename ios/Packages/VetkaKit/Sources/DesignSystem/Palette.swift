@@ -137,10 +137,12 @@ public extension Color {
 public struct AvatarView: View {
     private let name: String
     private let size: CGFloat
+    private let imageURL: URL?
 
-    public init(name: String, size: CGFloat = 40) {
+    public init(name: String, size: CGFloat = 40, imageURL: URL? = nil) {
         self.name = name
         self.size = size
+        self.imageURL = imageURL
     }
 
     public var body: some View {
@@ -152,6 +154,11 @@ public struct AvatarView: View {
                     .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
             }
+            .overlay {
+                if let imageURL {
+                    RemoteImage(url: imageURL).clipShape(Circle())
+                }
+            }
             .accessibilityHidden(true)
     }
 }
@@ -159,6 +166,15 @@ public struct AvatarView: View {
 /// UIKit version for feed cells. A label with a rounded layer background:
 /// no masksToBounds, so no offscreen rendering pass while scrolling.
 public final class AvatarLabel: UILabel {
+    private lazy var photo: RemoteImageView = {
+        let view = RemoteImageView()
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        addSubview(view)
+        return view
+    }()
+    private var showsPhoto = false
+
     public override init(frame: CGRect) {
         super.init(frame: frame)
         textAlignment = .center
@@ -171,11 +187,17 @@ public final class AvatarLabel: UILabel {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    public func configure(name: String) {
+    public func configure(name: String, imageURL: URL? = nil) {
         text = Avatar.initial(of: name)
         layer.backgroundColor = Palette.avatarColor(for: name).resolvedColor(with: traitCollection).cgColor
         accessibilityLabel = name
         self.name = name
+        if imageURL != nil || showsPhoto {
+            photo.setImage(url: imageURL, maxPixelSize: 320)
+            showsPhoto = imageURL != nil
+            photo.isHidden = !showsPhoto
+            if showsPhoto { setNeedsLayout() }
+        }
     }
 
     private var name = ""
@@ -184,6 +206,10 @@ public final class AvatarLabel: UILabel {
         super.layoutSubviews()
         layer.cornerRadius = bounds.height / 2
         font = .systemFont(ofSize: bounds.height * 0.42, weight: .semibold).rounded
+        if showsPhoto {
+            photo.frame = bounds
+            photo.layer.cornerRadius = bounds.height / 2
+        }
     }
 
 }

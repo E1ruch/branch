@@ -22,7 +22,7 @@ public struct SettingsScreen: View {
                 // Who is signed in, as Telegram opens its settings: not a
                 // row, the page's own header.
                 VStack(spacing: Spacing.xs) {
-                    AvatarView(name: me.username, size: 84)
+                    AvatarView(name: me.username, size: 84, imageURL: me.avatarUrl)
                         .padding(.bottom, Spacing.s)
                     Text(me.displayName ?? me.username)
                         .font(.title2.weight(.semibold))

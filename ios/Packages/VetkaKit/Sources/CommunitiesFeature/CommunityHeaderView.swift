@@ -10,6 +10,7 @@ final class CommunityHeaderView: UIView, PagerHeader {
     var onSubscribe: (() -> Void)?
 
     private let avatar = AvatarLabel()
+    private let banner = RemoteImageView()
     private let titleLabel = UILabel()
     private let slugLabel = UILabel()
     private let subscribeButton = UIButton(configuration: .filled())
@@ -55,6 +56,14 @@ final class CommunityHeaderView: UIView, PagerHeader {
         subscribeButton.accessibilityIdentifier = "community.subscribe"
         subscribeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         subscribeButton.setContentHuggingPriority(.required, for: .horizontal)
+        banner.contentMode = .scaleAspectFill
+        banner.backgroundColor = Palette.surfaceTertiary
+        banner.clipsToBounds = true
+        banner.layer.cornerRadius = Radius.card
+        banner.isHidden = true
+        let bannerHeight = banner.heightAnchor.constraint(equalToConstant: 112)
+        bannerHeight.priority = .defaultHigh
+        bannerHeight.isActive = true
 
         let names = UIStackView(arrangedSubviews: [titleLabel, slugLabel])
         names.axis = .vertical
@@ -62,7 +71,7 @@ final class CommunityHeaderView: UIView, PagerHeader {
         let top = UIStackView(arrangedSubviews: [avatar, names, subscribeButton])
         top.alignment = .center
         top.spacing = Spacing.m
-        let content = UIStackView(arrangedSubviews: [top, descriptionLabel, statsLabel])
+        let content = UIStackView(arrangedSubviews: [banner, top, descriptionLabel, statsLabel])
         content.axis = .vertical
         content.spacing = Spacing.m
         content.setCustomSpacing(Spacing.s, after: descriptionLabel)
@@ -111,6 +120,8 @@ final class CommunityHeaderView: UIView, PagerHeader {
         avatar.alpha = loaded ? 1 : 0
         titleLabel.alpha = loaded ? 1 : 0
         slugLabel.alpha = loaded ? 1 : 0
+        banner.isHidden = community?.bannerUrl == nil
+        banner.setImage(url: community?.bannerUrl, maxPixelSize: 1080)
         guard let community else {
             titleLabel.text = " "
             descriptionLabel.isHidden = true
@@ -119,7 +130,7 @@ final class CommunityHeaderView: UIView, PagerHeader {
         }
         titleLabel.text = community.title
         // By title, like the lists: the same letter and color everywhere.
-        avatar.configure(name: community.title)
+        avatar.configure(name: community.title, imageURL: community.iconUrl)
         descriptionLabel.text = community.description
         descriptionLabel.isHidden = community.description.isEmpty
         statsLabel.attributedText = stats(community)

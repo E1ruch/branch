@@ -36,7 +36,7 @@ actor SaveRecorder {
             UsernameAvailability(username: name, available: !taken, reason: taken ? "taken" : nil, message: nil)
         }
         return EditProfileModel(me: me, usernameCheck: check, now: { Date(timeIntervalSince1970: 1_800_000_000) }) {
-            username, name, bio throws(APIError) in
+            username, name, bio, _ throws(APIError) in
             try await recorder.save(username, name, bio)
         }
     }

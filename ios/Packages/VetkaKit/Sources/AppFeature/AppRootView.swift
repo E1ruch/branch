@@ -180,7 +180,7 @@ struct RouteView: View {
         case let .post(id):
             thread(.post(id: id))
         case let .community(slug):
-            CommunityScreen(slug: slug, communities: app.communities, posts: app.posts,
+            CommunityScreen(slug: slug, communities: app.communities, posts: app.posts, client: app.client,
                             feed: LiveFeedService(client: app.client),
                             isSignedIn: app.session.state == .signedIn,
                             open: { router.push($0) },
@@ -228,7 +228,9 @@ struct RouteView: View {
         let me = app.session.me
         return ThreadScreen(mode: mode, service: LivePostService(client: app.client), store: app.posts,
                             isSignedIn: app.session.state == .signedIn,
-                            viewer: me.map { AuthorRef(id: $0.id, username: $0.username, displayName: $0.displayName) },
+                            viewer: me.map {
+                                AuthorRef(id: $0.id, username: $0.username, displayName: $0.displayName, avatarUrl: $0.avatarUrl)
+                            },
                             open: { router.push($0) },
                             requestSignIn: { router.isAuthPresented = true },
                             continueStory: { router.compose(continuing: $0) })

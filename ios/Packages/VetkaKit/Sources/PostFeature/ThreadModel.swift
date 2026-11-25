@@ -533,7 +533,8 @@ final class ThreadModel {
 
     private func postChanged() async {
         guard let post else { return }
-        if let layout = postLayout, layout.title == post.title, layout.body == PostDetailLayout.displayBody(of: post) {
+        if let layout = postLayout, layout.title == post.title,
+           layout.body == PostDetailLayout.displayBody(of: post), layout.media == post.media {
             onChange?(.inPlace([.post, .story, .commentsHeader]))
             return
         }

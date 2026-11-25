@@ -85,7 +85,7 @@ struct CommunityPickerView: View {
             onPick(PickedCommunity(community))
         } label: {
             HStack(spacing: Spacing.m) {
-                AvatarView(name: community.title, size: 36)
+                AvatarView(name: community.title, size: 36, imageURL: community.iconUrl)
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(community.title)
                         .font(.body.weight(.semibold))

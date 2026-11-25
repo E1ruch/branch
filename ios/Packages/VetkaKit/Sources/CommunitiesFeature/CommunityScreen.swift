@@ -14,21 +14,25 @@ public struct CommunityScreen: View {
     private let communities: CommunityStore
     private let posts: PostStore
     private let feed: any FeedService
+    private let client: APIClient
     private let isSignedIn: Bool
     private let open: (Route) -> Void
     private let requestSignIn: () -> Void
     private let compose: (Community) -> Void
     @State private var titleHidden = false
     @State private var failure: APIError?
+    @State private var isEditingMedia = false
 
     /// `compose` opens the composer with this community picked.
-    public init(slug: String, communities: CommunityStore, posts: PostStore, feed: any FeedService, isSignedIn: Bool,
+    public init(slug: String, communities: CommunityStore, posts: PostStore, client: APIClient,
+                feed: any FeedService, isSignedIn: Bool,
                 open: @escaping (Route) -> Void, requestSignIn: @escaping () -> Void,
                 compose: @escaping (Community) -> Void) {
         self.slug = slug
         self.communities = communities
         self.posts = posts
         self.feed = feed
+        self.client = client
         self.isSignedIn = isSignedIn
         self.open = open
         self.requestSignIn = requestSignIn
@@ -58,6 +62,16 @@ public struct CommunityScreen: View {
         // scrolls under it and stays transparent over the posts.
         .toolbarBackground(.visible, for: .tabBar)
         .toolbar {
+            if isSignedIn, community?.canEdit == true {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Оформление сообщества", systemImage: "photo.on.rectangle") {
+                        isEditingMedia = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(Color(uiColor: Palette.iconPrimary))
+                    .accessibilityIdentifier("community.editMedia")
+                }
+            }
             if let community {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { compose(community) } label: {
@@ -67,6 +81,11 @@ public struct CommunityScreen: View {
                     }
                     .accessibilityLabel("Написать пост")
                 }
+            }
+        }
+        .sheet(isPresented: $isEditingMedia) {
+            if let community, isSignedIn, community.canEdit {
+                CommunityMediaEditor(community: community, client: client) { communities.merge([$0]) }
             }
         }
         // Again on sign-in or out: is_subscribed and the role are per viewer.

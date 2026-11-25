@@ -14,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"vetka/internal/media"
 )
 
 var (
@@ -42,11 +44,14 @@ type Community struct {
 
 	// Relative to the viewer; false/nil for anonymous requests.
 	IsSubscribed bool
+	IconKey      *string
+	BannerKey    *string
 	ViewerRole   *string // "owner" or "moderator"
 
 	// Only a single community carries its rules (Get and what returns it);
 	// lists leave them nil to stay small.
-	Rules []Rule
+	Rules   []Rule
+	CanEdit *bool
 }
 
 // Rule is one line of a community's rules: a short title and an optional
@@ -93,7 +98,7 @@ func NewService(db *pgxpool.Pool) *Service {
 const (
 	viewerColumns = `
 	SELECT c.id, c.slug, c.title, c.description, c.is_nsfw, c.subscribers_count, c.created_at,
-	       m.user_id IS NOT NULL, mod.role::text`
+	       m.user_id IS NOT NULL, mod.role::text, c.icon_key, c.banner_key`
 	viewerJoins = `
 	FROM communities c
 	LEFT JOIN community_members m      ON m.community_id = c.id AND m.user_id = $1
@@ -107,7 +112,7 @@ const (
 func scan(row pgx.Row, extra ...any) (Community, error) {
 	var c Community
 	err := row.Scan(append([]any{&c.ID, &c.Slug, &c.Title, &c.Description, &c.IsNSFW, &c.SubscribersCount, &c.CreatedAt,
-		&c.IsSubscribed, &c.ViewerRole}, extra...)...)
+		&c.IsSubscribed, &c.ViewerRole, &c.IconKey, &c.BannerKey}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Community{}, ErrNotFound
 	}
@@ -134,6 +139,8 @@ func (s *Service) Get(ctx context.Context, slug string, viewer int64) (Community
 	var rules []Rule
 	c, err := scan(s.db.QueryRow(ctx, selectDetail+` WHERE c.slug = $2`, viewer, slug), &rules)
 	c.Rules = rules
+	canEdit := c.ViewerRole != nil
+	c.CanEdit = &canEdit
 	return c, err
 }
 
@@ -203,10 +210,12 @@ func (s *Service) Create(ctx context.Context, userID int64, in CreateInput) (Com
 
 // UpdateInput changes only the non-nil fields. Rules replace the whole list.
 type UpdateInput struct {
-	Title       *string
-	Description *string
-	IsNSFW      *bool
-	Rules       *[]Rule
+	Title         *string
+	Description   *string
+	IsNSFW        *bool
+	Rules         *[]Rule
+	IconMediaID   *int64
+	BannerMediaID *int64
 }
 
 func (s *Service) Update(ctx context.Context, slug string, userID int64, in UpdateInput) (Community, error) {
@@ -235,26 +244,62 @@ func (s *Service) Update(ctx context.Context, slug string, userID int64, in Upda
 		}
 	}
 
-	tag, err := s.db.Exec(ctx, `
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Community{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var id int64
+	var canEdit bool
+	err = tx.QueryRow(ctx, `
+		SELECT c.id, EXISTS (
+			SELECT 1 FROM community_moderators WHERE community_id = c.id AND user_id = $2
+		)
+		FROM communities c WHERE c.slug = $1 FOR UPDATE OF c`, slug, userID).Scan(&id, &canEdit)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Community{}, ErrNotFound
+	}
+	if err != nil {
+		return Community{}, err
+	}
+	if !canEdit {
+		return Community{}, ErrForbidden
+	}
+
+	refs, err := media.LockOwnedReady(ctx, tx, userID, media.OptionalIDs(in.IconMediaID, in.BannerMediaID))
+	if err != nil {
+		return Community{}, err
+	}
+	icon, err := media.OptionalKey(refs, in.IconMediaID)
+	if err != nil {
+		return Community{}, &ValidationError{"icon_media_id", "image is not available"}
+	}
+	banner, err := media.OptionalKey(refs, in.BannerMediaID)
+	if err != nil {
+		return Community{}, &ValidationError{"banner_media_id", "image is not available"}
+	}
+	tag, err := tx.Exec(ctx, `
 		UPDATE communities c SET
 			title       = COALESCE($3, c.title),
 			description = COALESCE($4, c.description),
 			is_nsfw     = COALESCE($5, c.is_nsfw),
-			rules       = COALESCE($6::jsonb, c.rules)
-		WHERE c.slug = $1
+			rules       = COALESCE($6::jsonb, c.rules),
+			icon_key    = CASE WHEN $7 THEN $8 ELSE c.icon_key END,
+			banner_key  = CASE WHEN $9 THEN $10 ELSE c.banner_key END
+		WHERE c.id = $1
 		  AND EXISTS (SELECT 1 FROM community_moderators WHERE community_id = c.id AND user_id = $2)`,
-		slug, userID, in.Title, in.Description, in.IsNSFW, rules)
-	if err != nil {
-		return Community{}, err
-	}
-	c, err := s.Get(ctx, slug, userID)
+		id, userID, in.Title, in.Description, in.IsNSFW, rules, in.IconMediaID != nil, icon, in.BannerMediaID != nil, banner)
 	if err != nil {
 		return Community{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return Community{}, ErrForbidden // it exists, so the moderator check failed
+		return Community{}, ErrForbidden
 	}
-	return c, nil
+	if err := tx.Commit(ctx); err != nil {
+		return Community{}, err
+	}
+	return s.Get(ctx, slug, userID)
 }
 
 // Subscribe and Unsubscribe set the desired state rather than toggle it, so

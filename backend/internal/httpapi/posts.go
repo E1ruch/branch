@@ -9,12 +9,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"vetka/internal/media"
 	"vetka/internal/post"
 )
 
 type postHandlers struct {
-	svc *post.Service
-	log *slog.Logger
+	svc   *post.Service
+	media *media.Service
+	log   *slog.Logger
 }
 
 type postDTO struct {
@@ -31,6 +33,7 @@ type postDTO struct {
 	Community     postCommunity  `json:"community"`
 	Author        *postAuthorDTO `json:"author"`
 	Story         *storyRefDTO   `json:"story"` // null outside a story
+	Media         []imageDTO     `json:"media"`
 }
 
 type storyRefDTO struct {
@@ -40,25 +43,28 @@ type storyRefDTO struct {
 }
 
 type storyPartDTO struct {
-	PostID    int64     `json:"post_id"`
-	Title     string    `json:"title"`
-	Part      int       `json:"part"`
-	CreatedAt time.Time `json:"created_at"`
+	PostID    int64      `json:"post_id"`
+	Title     string     `json:"title"`
+	Part      int        `json:"part"`
+	CreatedAt time.Time  `json:"created_at"`
+	Media     []imageDTO `json:"media"`
 }
 
 type postCommunity struct {
-	ID    int64  `json:"id"`
-	Slug  string `json:"slug"`
-	Title string `json:"title"`
+	ID      int64  `json:"id"`
+	Slug    string `json:"slug"`
+	Title   string `json:"title"`
+	IconURL string `json:"icon_url,omitempty"`
 }
 
 type postAuthorDTO struct {
 	ID          int64   `json:"id"`
 	Username    string  `json:"username"`
 	DisplayName *string `json:"display_name"`
+	AvatarURL   string  `json:"avatar_url,omitempty"`
 }
 
-func toPostDTO(p post.Post) postDTO {
+func (h *postHandlers) toPostDTO(p post.Post) postDTO {
 	dto := postDTO{
 		ID:            p.ID,
 		Title:         p.Title,
@@ -70,13 +76,16 @@ func toPostDTO(p post.Post) postDTO {
 		MyVote:        p.MyVote,
 		CreatedAt:     p.CreatedAt,
 		EditedAt:      p.EditedAt,
-		Community:     postCommunity{ID: p.Community.ID, Slug: p.Community.Slug, Title: p.Community.Title},
+		Media:         toImageDTOs(p.Images, h.media),
+		Community: postCommunity{ID: p.Community.ID, Slug: p.Community.Slug, Title: p.Community.Title,
+			IconURL: optionalImageURL(h.media, p.Community.IconKey, 320)},
 	}
 	if p.Story != nil {
 		dto.Story = &storyRefDTO{ID: p.Story.ID, Part: p.Story.Part, Parts: p.Story.Parts}
 	}
 	if p.Author != nil {
-		dto.Author = &postAuthorDTO{ID: p.Author.ID, Username: p.Author.Username, DisplayName: p.Author.DisplayName}
+		dto.Author = &postAuthorDTO{ID: p.Author.ID, Username: p.Author.Username, DisplayName: p.Author.DisplayName,
+			AvatarURL: optionalImageURL(h.media, p.Author.AvatarKey, 320)}
 	}
 	return dto
 }
@@ -113,7 +122,7 @@ func (h *postHandlers) writeFeed(w http.ResponseWriter, r *http.Request, q post.
 	}
 	resp := page[postDTO]{Items: make([]postDTO, len(items))}
 	for i, p := range items {
-		resp.Items[i] = toPostDTO(p)
+		resp.Items[i] = h.toPostDTO(p)
 	}
 	if len(items) == q.Limit {
 		resp.NextCursor = encodeCursor(post.CursorAfter(items[len(items)-1]))
@@ -144,16 +153,17 @@ func (h *postHandlers) feedCommunity(w http.ResponseWriter, r *http.Request) {
 
 func (h *postHandlers) create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title           string `json:"title"`
-		Body            string `json:"body"`
-		IsNSFW          bool   `json:"is_nsfw"`
-		ContinuesPostID *int64 `json:"continues_post_id"`
+		Title           string  `json:"title"`
+		Body            string  `json:"body"`
+		IsNSFW          bool    `json:"is_nsfw"`
+		ContinuesPostID *int64  `json:"continues_post_id"`
+		MediaIDs        []int64 `json:"media_ids"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	p, err := h.svc.Create(r.Context(), viewer(r), chi.URLParam(r, "slug"),
-		post.CreateInput{Title: req.Title, Body: req.Body, IsNSFW: req.IsNSFW, ContinuesPostID: req.ContinuesPostID})
+		post.CreateInput{Title: req.Title, Body: req.Body, IsNSFW: req.IsNSFW, ContinuesPostID: req.ContinuesPostID, MediaIDs: req.MediaIDs})
 	h.respond(w, r, http.StatusCreated, p, err)
 }
 
@@ -180,7 +190,7 @@ func (h *postHandlers) story(w http.ResponseWriter, r *http.Request) {
 	}
 	out := page[storyPartDTO]{Items: make([]storyPartDTO, len(parts))}
 	for i, p := range parts {
-		out.Items[i] = storyPartDTO{PostID: p.PostID, Title: p.Title, Part: p.Part, CreatedAt: p.CreatedAt}
+		out.Items[i] = storyPartDTO{PostID: p.PostID, Title: p.Title, Part: p.Part, CreatedAt: p.CreatedAt, Media: toImageDTOs(p.Images, h.media)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -226,7 +236,7 @@ func (h *postHandlers) respond(w http.ResponseWriter, r *http.Request, status in
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, status, toPostDTO(p))
+	writeJSON(w, status, h.toPostDTO(p))
 }
 
 func (h *postHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {

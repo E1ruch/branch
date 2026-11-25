@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"vetka/internal/comment"
+	"vetka/internal/media"
 	"vetka/internal/post"
 	"vetka/internal/user"
 )
@@ -19,6 +20,7 @@ type userHandlers struct {
 	users    *user.Store
 	posts    *postHandlers // a user's posts are a feed like any other
 	comments *comment.Service
+	media    *media.Service
 	log      *slog.Logger
 }
 
@@ -31,8 +33,8 @@ type meDTO struct {
 	UsernameChangeableAt *time.Time `json:"username_changeable_at"`
 }
 
-func toMeDTO(u user.User) meDTO {
-	return meDTO{userDTO: toUserDTO(u), UsernameChangeableAt: u.UsernameChangeableAt}
+func (h *userHandlers) toMeDTO(u user.User) meDTO {
+	return meDTO{userDTO: toUserDTO(u, h.media), UsernameChangeableAt: u.UsernameChangeableAt}
 }
 
 type authoredCommentDTO struct {
@@ -56,30 +58,32 @@ func (h *userHandlers) me(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toMeDTO(u))
+	writeJSON(w, http.StatusOK, h.toMeDTO(u))
 }
 
-// updateMe: PATCH /v1/me {"username"?, "display_name"?, "bio"?}. Omitted
-// fields stay; an empty display name or bio clears it.
+// updateMe changes the supplied fields. An empty display name or bio
+// and an avatar_media_id of 0 clear those fields.
 func (h *userHandlers) updateMe(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username    *string `json:"username"`
-		DisplayName *string `json:"display_name"`
-		Bio         *string `json:"bio"`
+		Username      *string `json:"username"`
+		DisplayName   *string `json:"display_name"`
+		Bio           *string `json:"bio"`
+		AvatarMediaID *int64  `json:"avatar_media_id"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	u, err := h.users.Update(r.Context(), viewer(r), user.UpdateInput{
-		Username:    req.Username,
-		DisplayName: req.DisplayName,
-		Bio:         req.Bio,
+		Username:      req.Username,
+		DisplayName:   req.DisplayName,
+		Bio:           req.Bio,
+		AvatarMediaID: req.AvatarMediaID,
 	})
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toMeDTO(u))
+	writeJSON(w, http.StatusOK, h.toMeDTO(u))
 }
 
 // deleteMe: DELETE /v1/me. The app signs out right after; the access token
@@ -130,7 +134,7 @@ func (h *userHandlers) follow(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: true})
+	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u, h.media), IsFollowing: true})
 }
 
 // unfollow: DELETE /v1/users/{username}/follow.
@@ -140,7 +144,7 @@ func (h *userHandlers) unfollow(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: false})
+	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u, h.media), IsFollowing: false})
 }
 
 // Follow limits: the app sends only the final state of a burst of taps, so
@@ -220,7 +224,7 @@ func (h *userHandlers) followList(w http.ResponseWriter, r *http.Request, list f
 	}
 	resp := page[profileDTO]{Items: make([]profileDTO, len(items))}
 	for i, l := range items {
-		resp.Items[i] = profileDTO{userDTO: toUserDTO(l.User), IsFollowing: l.IsFollowing}
+		resp.Items[i] = profileDTO{userDTO: toUserDTO(l.User, h.media), IsFollowing: l.IsFollowing}
 	}
 	if len(items) == limit {
 		last := items[len(items)-1]
@@ -235,7 +239,7 @@ func (h *userHandlers) writeProfile(w http.ResponseWriter, r *http.Request, u us
 		internalError(w, r, h.log, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u), IsFollowing: following})
+	writeJSON(w, http.StatusOK, profileDTO{userDTO: toUserDTO(u, h.media), IsFollowing: following})
 }
 
 func (h *userHandlers) userPosts(w http.ResponseWriter, r *http.Request) {
@@ -282,7 +286,7 @@ func (h *userHandlers) userComments(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := page[authoredCommentDTO]{Items: make([]authoredCommentDTO, len(items))}
 	for i, a := range items {
-		dto := authoredCommentDTO{commentDTO: toCommentDTO(a.Comment)}
+		dto := authoredCommentDTO{commentDTO: toCommentDTO(a.Comment, h.media)}
 		dto.Post.ID, dto.Post.Title, dto.Post.CommunitySlug = a.Post.ID, a.Post.Title, a.Post.CommunitySlug
 		resp.Items[i] = dto
 	}

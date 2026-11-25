@@ -15,7 +15,7 @@ public struct CommunityRow: View {
 
     public var body: some View {
         HStack(spacing: Spacing.m) {
-            AvatarView(name: community.title, size: 44)
+            AvatarView(name: community.title, size: 44, imageURL: community.iconUrl)
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(community.title)
                     .font(.headline)

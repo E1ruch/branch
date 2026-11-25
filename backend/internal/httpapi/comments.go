@@ -10,11 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"vetka/internal/comment"
+	"vetka/internal/media"
 )
 
 type commentHandlers struct {
-	svc *comment.Service
-	log *slog.Logger
+	svc   *comment.Service
+	media *media.Service
+	log   *slog.Logger
 }
 
 type commentDTO struct {
@@ -44,7 +46,7 @@ type threadItemDTO struct {
 	Cursor   *string `json:"cursor,omitempty"`
 }
 
-func toCommentDTO(c comment.Comment) commentDTO {
+func toCommentDTO(c comment.Comment, images *media.Service) commentDTO {
 	dto := commentDTO{
 		ID:         c.ID,
 		PostID:     c.PostID,
@@ -61,16 +63,17 @@ func toCommentDTO(c comment.Comment) commentDTO {
 		dto.Body = &c.Body
 	}
 	if c.Author != nil {
-		dto.Author = &postAuthorDTO{ID: c.Author.ID, Username: c.Author.Username, DisplayName: c.Author.DisplayName}
+		dto.Author = &postAuthorDTO{ID: c.Author.ID, Username: c.Author.Username, DisplayName: c.Author.DisplayName,
+			AvatarURL: optionalImageURL(images, c.Author.AvatarKey, 320)}
 	}
 	return dto
 }
 
-func toThreadDTO(p comment.Page) page[threadItemDTO] {
+func (h *commentHandlers) toThreadDTO(p comment.Page) page[threadItemDTO] {
 	out := page[threadItemDTO]{Items: make([]threadItemDTO, len(p.Items))}
 	for i, it := range p.Items {
 		if it.Kind == comment.KindComment {
-			c := toCommentDTO(*it.Comment)
+			c := toCommentDTO(*it.Comment, h.media)
 			out.Items[i] = threadItemDTO{Kind: string(it.Kind), Comment: &c}
 			continue
 		}
@@ -125,7 +128,7 @@ func (h *commentHandlers) thread(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toThreadDTO(p))
+	writeJSON(w, http.StatusOK, h.toThreadDTO(p))
 }
 
 // get: GET /v1/comments/{id} — the head of a "продолжить ветку" screen.
@@ -153,7 +156,7 @@ func (h *commentHandlers) replies(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toThreadDTO(p))
+	writeJSON(w, http.StatusOK, h.toThreadDTO(p))
 }
 
 // create: POST /v1/posts/{id}/comments {"body": "...", "parent_id": 123?}
@@ -214,7 +217,7 @@ func (h *commentHandlers) respond(w http.ResponseWriter, r *http.Request, status
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, status, toCommentDTO(c))
+	writeJSON(w, status, toCommentDTO(c, h.media))
 }
 
 func (h *commentHandlers) fail(w http.ResponseWriter, r *http.Request, err error) {

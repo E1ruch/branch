@@ -28,6 +28,7 @@ final class PostDetailCell: UICollectionViewCell {
     private let moreButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
+    private let photos = PostImagesView()
     private let votes = VoteControl()
     private let commentsLabel = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
@@ -74,10 +75,11 @@ final class PostDetailCell: UICollectionViewCell {
         shareButton.addAction(UIAction { [weak self] _ in self?.onAction?(.share) }, for: .touchUpInside)
         votes.onVote = { [weak self] direction in self?.onAction?(.vote(direction)) }
 
-        for view in [avatar, authorButton, communityButton, moreButton, votes, commentsLabel, shareButton, gapView, skeleton] as [UIView] {
+        photos.isUserInteractionEnabled = false
+        for view in [photos, avatar, authorButton, communityButton, moreButton, votes, commentsLabel, shareButton, gapView, skeleton] as [UIView] {
             contentView.addSubview(view)
         }
-        contentView.accessibilityElements = [titleLabel, authorButton, communityButton, bodyLabel, votes, commentsLabel, shareButton, moreButton]
+        contentView.accessibilityElements = [titleLabel, authorButton, communityButton, bodyLabel, photos, votes, commentsLabel, shareButton, moreButton]
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -86,6 +88,7 @@ final class PostDetailCell: UICollectionViewCell {
     func configure(post: Post?, layout: PostDetailLayout?, fonts: ThreadFonts, animateVote: Bool) {
         self.layout = layout
         guard let post, let layout else {
+            photos.configure([], isPreview: false)
             skeleton.isHidden = false
             for view in contentView.subviews where view !== skeleton { view.isHidden = true }
             return
@@ -94,7 +97,7 @@ final class PostDetailCell: UICollectionViewCell {
         for view in contentView.subviews where view !== skeleton { view.isHidden = false }
 
         let author = post.author?.username ?? "удалённый аккаунт"
-        avatar.configure(name: author)
+        avatar.configure(name: author, imageURL: post.author?.avatarUrl)
         authorLabel.font = fonts.postAuthor
         authorLabel.text = author
         authorButton.isEnabled = post.author != nil
@@ -110,6 +113,7 @@ final class PostDetailCell: UICollectionViewCell {
         bodyLabel.font = fonts.postBody
         bodyLabel.text = layout.body
         bodyLabel.isHidden = layout.body.isEmpty
+        photos.configure(post.media.map { ($0.urls["1440"], $0.thumbhash) }, isPreview: false)
 
         var attributes = AttributeContainer()
         attributes.font = fonts.footer
@@ -138,6 +142,7 @@ final class PostDetailCell: UICollectionViewCell {
         moreButton.frame = layout.moreFrame
         titleLabel.frame = layout.titleFrame
         bodyLabel.frame = layout.bodyFrame
+        photos.place(in: contentView.bounds, frames: layout.mediaFrames)
         let footer = layout.footerFrame
         votes.frame = CGRect(x: footer.minX, y: footer.minY, width: VoteControl.width, height: footer.height)
         commentsLabel.frame = CGRect(x: votes.frame.maxX + 10, y: footer.minY, width: 80, height: footer.height)
@@ -149,6 +154,7 @@ final class PostDetailCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         onAction = nil
+        photos.configure([], isPreview: false)
     }
 }
 
@@ -217,7 +223,7 @@ final class CommentCell: UICollectionViewCell {
         self.isCollapsed = isCollapsed
         let deleted = comment.isDeleted || comment.body == nil
         let name = comment.author?.username ?? (deleted ? "удалено" : "удалённый аккаунт")
-        avatar.configure(name: name)
+        avatar.configure(name: name, imageURL: comment.author?.avatarUrl)
         avatar.alpha = deleted ? 0.4 : 1
 
         let header = NSMutableAttributedString(string: name, attributes: [

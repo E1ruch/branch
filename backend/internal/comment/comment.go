@@ -54,6 +54,7 @@ type AuthorRef struct {
 	ID          int64
 	Username    string
 	DisplayName *string
+	AvatarKey   *string
 }
 
 const (
@@ -92,7 +93,7 @@ const (
 	       t.id, t.post_id, t.parent_id, t.depth,
 	       CASE WHEN t.deleted_at IS NULL THEN t.body ELSE '' END, t.deleted_at IS NOT NULL,
 	       t.score, COALESCE(v.value, 0), t.reply_count, t.created_at, t.edited_at,
-	       u.id, u.username, u.display_name`
+	       u.id, u.username, u.display_name, u.avatar_key`
 	commentJoins = `
 	LEFT JOIN users u ON u.id = t.author_id AND u.deleted_at IS NULL AND t.deleted_at IS NULL
 	LEFT JOIN comment_votes v ON v.comment_id = t.id AND v.user_id = $1`
@@ -105,10 +106,11 @@ func scan(row pgx.Row, extra ...any) (Comment, error) {
 		authorID    *int64
 		username    *string
 		displayName *string
+		avatarKey   *string
 	)
 	dest := []any{&c.ID, &c.PostID, &c.ParentID, &c.Depth, &c.Body, &c.Deleted,
 		&c.Score, &c.MyVote, &c.ReplyCount, &c.CreatedAt, &c.EditedAt,
-		&authorID, &username, &displayName}
+		&authorID, &username, &displayName, &avatarKey}
 	err := row.Scan(append(dest, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Comment{}, ErrNotFound
@@ -117,7 +119,7 @@ func scan(row pgx.Row, extra ...any) (Comment, error) {
 		return Comment{}, err
 	}
 	if authorID != nil {
-		c.Author = &AuthorRef{ID: *authorID, Username: *username, DisplayName: displayName}
+		c.Author = &AuthorRef{ID: *authorID, Username: *username, DisplayName: displayName, AvatarKey: avatarKey}
 	}
 	return c, nil
 }

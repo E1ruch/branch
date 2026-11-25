@@ -1,11 +1,13 @@
 import Core
 import DesignSystem
+import Networking
+import PhotosUI
 import SwiftUI
 
 /// The "+" sheet, in the spirit of Telegram's "new channel": the title in a
 /// rounded field (up to three lines, with a clear button), the text in
 /// another that styles markdown as it is typed. Formatting lives in the
-/// edit menu of a selection, not on screen; the paperclip (coming soon) sits
+/// edit menu of a selection, not on screen; the paperclip sits
 /// by the length; the publish settings open from the subtitle under
 /// "Новый пост". The draft saves itself, so closing loses nothing.
 public struct ComposeView: View {
@@ -19,6 +21,7 @@ public struct ComposeView: View {
     @State private var editor = MarkdownEditor()
     @State private var isShowingSettings = false
     @State private var isConfirmingClose = false
+    @State private var photoSelection: [PhotosPickerItem] = []
 
     public init(service: any ComposeService, storage: any DraftStorage, community: PickedCommunity? = nil,
                 continues: ContinuedPost? = nil, onPublished: @escaping (Post) -> Void) {
@@ -35,6 +38,9 @@ public struct ComposeView: View {
                     VStack(alignment: .leading, spacing: Spacing.m) {
                         titleField
                         bodyField
+                        if !model.draft.photos.isEmpty {
+                            photoStrip
+                        }
                         if let error = model.error {
                             Label(error, systemImage: "exclamationmark.circle.fill")
                                 .font(.footnote)
@@ -50,6 +56,7 @@ public struct ComposeView: View {
                             .accessibilityHidden(true)
                     }
                     .padding(.horizontal, Spacing.l)
+                    .disabled(model.isPublishing)
                     .padding(.top, Spacing.s)
                     .frame(minHeight: proxy.size.height, alignment: .top)
                     .animation(.vetka, value: model.error)
@@ -63,6 +70,7 @@ public struct ComposeView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Отмена", action: close)
                         .foregroundStyle(Color.vetkaSecondaryText)
+                        .disabled(model.isPublishing || model.isPreparingPhotos)
                 }
                 ToolbarItem(placement: .principal) {
                     navigationTitle
@@ -108,6 +116,13 @@ public struct ComposeView: View {
             }
         }
         .task { titleFocused = true }
+        .task(id: photoSelection) {
+            guard !photoSelection.isEmpty else { return }
+            hideKeyboard()
+            await model.addPhotos(photoSelection)
+            if !Task.isCancelled { photoSelection = [] }
+        }
+        .interactiveDismissDisabled(model.isPublishing || model.isPreparingPhotos)
         // Swiping the sheet down keeps the draft for next time.
         .onDisappear { model.saveNow() }
     }
@@ -225,6 +240,7 @@ public struct ComposeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(model.isPublishing)
         .animation(.vetkaSnappy, value: settingsSummary)
         .accessibilityLabel("Настройки публикации: \(settingsSummary)")
         .accessibilityIdentifier("compose.settingsSummary")
@@ -269,24 +285,76 @@ public struct ComposeView: View {
 
     // MARK: Attachments
 
-    /// Photos and video are next: the menu says so.
     private var attachButton: some View {
-        Menu {
-            Section("Скоро") {
-                Button("Фото", systemImage: "photo.on.rectangle") {}
-                    .disabled(true)
-                Button("Видео", systemImage: "video") {}
-                    .disabled(true)
+        let isPreparing = model.isPreparingPhotos
+        return PhotosPicker(selection: $photoSelection, maxSelectionCount: max(1, ComposeModel.maxPhotos - model.draft.photos.count),
+                     selectionBehavior: .ordered, matching: .images, preferredItemEncoding: .current) {
+            Group {
+                if isPreparing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 15, weight: .semibold))
+                }
             }
-        } label: {
-            Image(systemName: "paperclip")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(uiColor: Palette.iconPrimary))
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(Color(uiColor: Palette.surface)))
-                .contentShape(Circle())
+            .foregroundStyle(Color(uiColor: Palette.iconPrimary))
+            .frame(width: 32, height: 32)
+            .background(Circle().fill(Color(uiColor: Palette.surface)))
+            .contentShape(Circle())
         }
-        .accessibilityLabel("Прикрепить фото или видео")
+        .buttonStyle(.plain)
+        .disabled(model.draft.photos.count >= ComposeModel.maxPhotos || model.isPreparingPhotos)
+        .accessibilityLabel("Прикрепить фото")
+        .accessibilityHint("До \(ComposeModel.maxPhotos) фото")
+        .accessibilityIdentifier("compose.attachPhotos")
+    }
+
+    private var photoStrip: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: Spacing.s) {
+                ForEach(model.draft.photos) { photo in
+                    DraftPhotoThumbnail(photo: photo) { model.removePhoto(photo) }
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private struct DraftPhotoThumbnail: View {
+        let photo: DraftPhoto
+        let remove: () -> Void
+        @State private var preview: CGImage?
+
+        var body: some View {
+            ZStack(alignment: .topTrailing) {
+                Color.vetkaField
+                    .overlay {
+                        if let preview {
+                            Image(decorative: preview, scale: 1)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "photo").foregroundStyle(Color.vetkaSecondaryText)
+                        }
+                    }
+                    .frame(width: 76, height: 76)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+                    .accessibilityHidden(true)
+                Button(action: remove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.7))
+                        .font(.system(size: 20))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Удалить фото")
+            }
+            .task(id: photo.id) {
+                preview = await PhotoPreparation.shared.preview(at: photo.url, maxPixelSize: 240)
+            }
+        }
     }
 
     private func openSettings() {

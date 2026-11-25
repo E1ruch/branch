@@ -1,6 +1,7 @@
 import Core
 import DesignSystem
 import Networking
+import PhotosUI
 import Stores
 import SwiftUI
 
@@ -12,6 +13,7 @@ public struct EditProfileScreen: View {
     private let onSaved: (Me) -> Void
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focus: Field?
+    @State private var pickedAvatar: PhotosPickerItem?
 
     private enum Field { case name, bio, username }
 
@@ -22,12 +24,7 @@ public struct EditProfileScreen: View {
 
     public var body: some View {
         List {
-            // The avatar follows the username being typed: its letter and color.
-            AvatarView(name: model.username.isEmpty ? "?" : model.username, size: 96)
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: Spacing.s, leading: 0, bottom: 0, trailing: 0))
-                .animation(.vetkaSnappy, value: model.username.first)
+            avatarEditor
 
             Section {
                 TextField("Имя", text: $model.displayName)
@@ -80,6 +77,7 @@ public struct EditProfileScreen: View {
                 }
             }
         }
+        .disabled(model.isSaving)
         .groupedListStyle()
         .scrollDismissesKeyboard(.interactively)
         .animation(.vetkaSnappy, value: model.error)
@@ -106,6 +104,49 @@ public struct EditProfileScreen: View {
             }
         }
         .task(id: model.username) { await model.checkUsername() }
+        .task(id: pickedAvatar) {
+            guard let pickedAvatar else { return }
+            focus = nil
+            await model.selectAvatar(pickedAvatar)
+            if !Task.isCancelled { self.pickedAvatar = nil }
+        }
+    }
+
+    private var avatarEditor: some View {
+        let hasAvatar = model.hasAvatar
+        return VStack(spacing: Spacing.s) {
+            if let preview = model.avatarPreview {
+                Image(decorative: preview, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 96, height: 96)
+                    .clipShape(Circle())
+            } else {
+                AvatarView(name: model.username.isEmpty ? "?" : model.username, size: 96, imageURL: model.avatarURL)
+            }
+            if model.isPreparingAvatar {
+                ProgressView().controlSize(.small)
+            } else {
+                HStack(spacing: Spacing.l) {
+                    PhotosPicker(selection: $pickedAvatar, matching: .images, preferredItemEncoding: .current) {
+                        Text(hasAvatar ? "Заменить фото" : "Добавить фото")
+                    }
+                    .foregroundStyle(Color.vetkaBrand)
+                    .accessibilityIdentifier("editProfile.pickAvatar")
+                    if hasAvatar {
+                        Button("Удалить", role: .destructive, action: model.removeAvatar)
+                            .foregroundStyle(Color.vetkaDanger)
+                            .accessibilityIdentifier("editProfile.removeAvatar")
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.subheadline.weight(.semibold))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: Spacing.s, leading: 0, bottom: 0, trailing: 0))
+        .animation(.vetkaSnappy, value: model.username.first)
     }
 
     private func limitNote(_ text: String, count: Int, max: Int) -> some View {

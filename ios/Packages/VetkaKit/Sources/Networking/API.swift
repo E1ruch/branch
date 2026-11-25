@@ -75,12 +75,15 @@ public enum API {
         let username: String?
         let displayName: String?
         let bio: String?
+        let avatarMediaId: Int64?
     }
 
     /// nil fields are left out of the body and stay as they are on the
-    /// server; an empty string clears a display name or bio.
-    public static func updateMe(username: String? = nil, displayName: String? = nil, bio: String? = nil) -> Endpoint<Me> {
-        Endpoint(.patch, "/v1/me", body: ProfileUpdate(username: username, displayName: displayName, bio: bio), auth: .required)
+    /// server. Empty text clears the field, and a media ID of 0 removes the avatar.
+    public static func updateMe(username: String? = nil, displayName: String? = nil, bio: String? = nil,
+                                avatarMediaID: Int64? = nil) -> Endpoint<Me> {
+        Endpoint(.patch, "/v1/me", body: ProfileUpdate(username: username, displayName: displayName, bio: bio,
+                                                        avatarMediaId: avatarMediaID), auth: .required)
     }
 
     /// Closes the account for good (App Store requires the app to offer it).
@@ -125,6 +128,17 @@ public enum API {
         Endpoint(.get, "/v1/communities/\(slug)")
     }
 
+    private struct CommunityMediaUpdate: Encodable, Sendable {
+        let iconMediaId: Int64?
+        let bannerMediaId: Int64?
+    }
+
+    public static func updateCommunityMedia(_ slug: String, iconMediaID: Int64? = nil,
+                                            bannerMediaID: Int64? = nil) -> Endpoint<Community> {
+        Endpoint(.patch, "/v1/communities/\(slug)",
+                 body: CommunityMediaUpdate(iconMediaId: iconMediaID, bannerMediaId: bannerMediaID), auth: .required)
+    }
+
     /// Sets the subscription to a state (PUT subscribes, DELETE leaves), so
     /// a retry never flips it back. Returns the community with the fresh
     /// subscriber count.
@@ -163,14 +177,37 @@ public enum API {
         let body: String
         let isNsfw: Bool
         let continuesPostId: Int64?
+        let mediaIds: [Int64]?
     }
 
     /// `continues`: the author's post this one follows; the new post
     /// becomes the next part of that story.
     public static func createPost(community slug: String, title: String, body: String, isNSFW: Bool,
-                                  continues: Int64? = nil) -> Endpoint<Post> {
+                                  continues: Int64? = nil, mediaIDs: [Int64] = []) -> Endpoint<Post> {
         Endpoint(.post, "/v1/communities/\(slug)/posts",
-                 body: NewPost(title: title, body: body, isNsfw: isNSFW, continuesPostId: continues), auth: .required)
+                 body: NewPost(title: title, body: body, isNsfw: isNSFW, continuesPostId: continues,
+                               mediaIds: mediaIDs.isEmpty ? nil : mediaIDs), auth: .required)
+    }
+
+    // MARK: Media
+
+    private struct NewMediaUpload: Encodable, Sendable {
+        let mimeType: String
+        let sizeBytes: Int
+    }
+
+    struct MediaUpload: Decodable, Sendable {
+        let id: Int64
+        let uploadUrl: URL
+        let headers: [String: String]
+    }
+
+    static func mediaUpload(size: Int) -> Endpoint<MediaUpload> {
+        Endpoint(.post, "/v1/media/uploads", body: NewMediaUpload(mimeType: "image/jpeg", sizeBytes: size), auth: .required)
+    }
+
+    static func completeMediaUpload(_ id: Int64) -> Endpoint<Media> {
+        Endpoint(.post, "/v1/media/\(id)/complete", auth: .required)
     }
 
     /// The parts of the post's story in order; empty outside a story.

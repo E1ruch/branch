@@ -123,6 +123,7 @@ final class ProfileHeaderView: UIView, PagerHeader {
             return
         }
         nameLabel.text = profile.name
+        avatar.configure(name: profile.username, imageURL: profile.avatarUrl)
         handleLabel.text = "@\(profile.username) · на Ветке с " + Self.month.string(from: profile.createdAt)
         bioLabel.text = profile.bio
         bioLabel.isHidden = profile.bio?.isEmpty ?? true

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"vetka/internal/media"
 )
 
 type Config struct {
@@ -44,6 +46,13 @@ type Config struct {
 
 	PublicBaseURL string
 	AppScheme     string
+
+	mediaEnabled bool
+	mediaStorage media.StorageConfig
+}
+
+func (c Config) MediaStorage() (media.StorageConfig, bool) {
+	return c.mediaStorage, c.mediaEnabled
 }
 
 func Load() (Config, error) {
@@ -97,6 +106,22 @@ func Load() (Config, error) {
 		}
 	}
 	c.AppScheme = str("APP_URL_SCHEME", "vetka")
+	c.mediaEnabled = boolean("MEDIA_ENABLED", false, &errs)
+	if c.mediaEnabled {
+		c.mediaStorage = media.StorageConfig{
+			Endpoint:       str("MEDIA_S3_ENDPOINT", "http://127.0.0.1:9000"),
+			UploadEndpoint: str("MEDIA_UPLOAD_ENDPOINT", ""),
+			Bucket:         str("MEDIA_S3_BUCKET", "vetka-media"),
+			Region:         str("MEDIA_S3_REGION", "us-east-1"),
+			AccessKey:      str("MEDIA_S3_ACCESS_KEY", ""),
+			SecretKey:      str("MEDIA_S3_SECRET_KEY", ""),
+			SessionToken:   str("MEDIA_S3_SESSION_TOKEN", ""),
+			PathStyle:      boolean("MEDIA_S3_PATH_STYLE", true, &errs),
+			ImageProxyURL:  str("MEDIA_IMGPROXY_URL", "http://127.0.0.1:8090"),
+			ImageProxyKey:  str("MEDIA_IMGPROXY_KEY", ""),
+			ImageProxySalt: str("MEDIA_IMGPROXY_SALT", ""),
+		}
+	}
 
 	if len(errs) > 0 {
 		return Config{}, fmt.Errorf("config: %v", errs)
@@ -109,6 +134,19 @@ func str(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func boolean(key string, def bool, errs *[]error) bool {
+	v := str(key, "")
+	if v == "" {
+		return def
+	}
+	value, err := strconv.ParseBool(v)
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("%s: want true or false", key))
+		return def
+	}
+	return value
 }
 
 func integer(key string, def int, errs *[]error) int {

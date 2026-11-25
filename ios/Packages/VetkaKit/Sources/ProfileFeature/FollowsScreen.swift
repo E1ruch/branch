@@ -130,7 +130,7 @@ private struct PersonRow: View {
 
     var body: some View {
         HStack(spacing: Spacing.m) {
-            AvatarView(name: profile.username, size: 44)
+            AvatarView(name: profile.username, size: 44, imageURL: profile.avatarUrl)
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text(profile.name)
                     .font(.headline)

@@ -10,11 +10,13 @@ import (
 
 	"vetka/internal/auth"
 	"vetka/internal/community"
+	"vetka/internal/media"
 )
 
 type communityHandlers struct {
-	svc *community.Service
-	log *slog.Logger
+	svc   *community.Service
+	media *media.Service
+	log   *slog.Logger
 }
 
 type communityDTO struct {
@@ -27,6 +29,9 @@ type communityDTO struct {
 	CreatedAt        time.Time `json:"created_at"`
 	IsSubscribed     bool      `json:"is_subscribed"`
 	ViewerRole       *string   `json:"viewer_role"`
+	CanEdit          *bool     `json:"can_edit,omitempty"`
+	IconURL          string    `json:"icon_url,omitempty"`
+	BannerURL        string    `json:"banner_url,omitempty"`
 	// Present on a single community only; lists leave it out.
 	Rules *[]ruleDTO `json:"rules,omitempty"`
 }
@@ -36,7 +41,7 @@ type ruleDTO struct {
 	Body  string `json:"body"`
 }
 
-func toCommunityDTO(c community.Community) communityDTO {
+func (h *communityHandlers) toCommunityDTO(c community.Community) communityDTO {
 	dto := communityDTO{
 		ID:               c.ID,
 		Slug:             c.Slug,
@@ -47,6 +52,9 @@ func toCommunityDTO(c community.Community) communityDTO {
 		CreatedAt:        c.CreatedAt,
 		IsSubscribed:     c.IsSubscribed,
 		ViewerRole:       c.ViewerRole,
+		CanEdit:          c.CanEdit,
+		IconURL:          optionalImageURL(h.media, c.IconKey, 320),
+		BannerURL:        optionalImageURL(h.media, c.BannerKey, 1080),
 	}
 	if c.Rules != nil {
 		rules := make([]ruleDTO, len(c.Rules))
@@ -58,10 +66,10 @@ func toCommunityDTO(c community.Community) communityDTO {
 	return dto
 }
 
-func toCommunityDTOs(cs []community.Community) []communityDTO {
+func (h *communityHandlers) toCommunityDTOs(cs []community.Community) []communityDTO {
 	out := make([]communityDTO, len(cs))
 	for i, c := range cs {
-		out[i] = toCommunityDTO(c)
+		out[i] = h.toCommunityDTO(c)
 	}
 	return out
 }
@@ -94,7 +102,7 @@ func (h *communityHandlers) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	resp := page[communityDTO]{Items: toCommunityDTOs(items)}
+	resp := page[communityDTO]{Items: h.toCommunityDTOs(items)}
 	if len(items) == limit {
 		last := items[len(items)-1]
 		resp.NextCursor = encodeCursor(community.PopularCursor{Subscribers: last.SubscribersCount, ID: last.ID})
@@ -108,7 +116,7 @@ func (h *communityHandlers) search(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, page[communityDTO]{Items: toCommunityDTOs(items)})
+	writeJSON(w, http.StatusOK, page[communityDTO]{Items: h.toCommunityDTOs(items)})
 }
 
 func (h *communityHandlers) get(w http.ResponseWriter, r *http.Request) {
@@ -139,15 +147,19 @@ func (h *communityHandlers) update(w http.ResponseWriter, r *http.Request) {
 		Description *string `json:"description"`
 		IsNSFW      *bool   `json:"is_nsfw"`
 		// The whole list, in order; [] removes every rule.
-		Rules *[]ruleDTO `json:"rules"`
+		Rules         *[]ruleDTO `json:"rules"`
+		IconMediaID   *int64     `json:"icon_media_id"`
+		BannerMediaID *int64     `json:"banner_media_id"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	in := community.UpdateInput{
-		Title:       req.Title,
-		Description: req.Description,
-		IsNSFW:      req.IsNSFW,
+		IconMediaID:   req.IconMediaID,
+		BannerMediaID: req.BannerMediaID,
+		Title:         req.Title,
+		Description:   req.Description,
+		IsNSFW:        req.IsNSFW,
 	}
 	if req.Rules != nil {
 		rules := make([]community.Rule, len(*req.Rules))
@@ -173,7 +185,7 @@ func (h *communityHandlers) subscriptions(w http.ResponseWriter, r *http.Request
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, page[communityDTO]{Items: toCommunityDTOs(items)})
+	writeJSON(w, http.StatusOK, page[communityDTO]{Items: h.toCommunityDTOs(items)})
 }
 
 // respond writes a single community or the mapped error.
@@ -183,7 +195,7 @@ func (h *communityHandlers) respond(w http.ResponseWriter, r *http.Request, stat
 			h.fail(w, r, err)
 			return
 		}
-		writeJSON(w, status, toCommunityDTO(c))
+		writeJSON(w, status, h.toCommunityDTO(c))
 	}
 }
 

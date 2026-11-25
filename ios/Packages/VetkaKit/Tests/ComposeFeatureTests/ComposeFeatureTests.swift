@@ -25,23 +25,35 @@ func community(_ slug: String, id: Int64 = 1, nsfw: Bool = false) -> Community {
 }
 
 actor FakeComposeService: ComposeService {
-    var published: [(slug: String, title: String, body: String, nsfw: Bool, continues: Int64?)] = []
+    var published: [(slug: String, title: String, body: String, nsfw: Bool, continues: Int64?, mediaIDs: [Int64])] = []
+    var uploaded: [Data] = []
     var publishError: APIError?
+    var expiredUploads: Set<Int64> = []
+    var recentPosts: [Post] = []
     var mine: [Community] = []
     var top: [Community] = []
 
     func fail(with error: APIError?) { publishError = error }
+    func expire(_ id: Int64) { expiredUploads.insert(id) }
+    func remember(_ post: Post) { recentPosts.append(post) }
     func set(mine: [Community], top: [Community]) { self.mine = mine; self.top = top }
 
     func subscriptions() async throws(APIError) -> [Community] { mine }
     func popular() async throws(APIError) -> [Community] { top }
     func search(_ query: String) async throws(APIError) -> [Community] { top.filter { $0.slug.contains(query) } }
 
-    func myPosts() async throws(APIError) -> [Post] { [] }
+    func myPosts() async throws(APIError) -> [Post] { recentPosts }
+
+    func photoIsAvailable(_ id: Int64) async throws(APIError) -> Bool { !expiredUploads.contains(id) }
+
+    func uploadPhoto(_ jpeg: Data) async throws(APIError) -> Int64 {
+        uploaded.append(jpeg)
+        return 100 + Int64(uploaded.count)
+    }
 
     func publish(community slug: String, title: String, body: String, isNSFW: Bool,
-                 continues: Int64?) async throws(APIError) -> Post {
-        published.append((slug, title, body, isNSFW, continues))
+                 continues: Int64?, mediaIDs: [Int64]) async throws(APIError) -> Post {
+        published.append((slug, title, body, isNSFW, continues, mediaIDs))
         if let publishError { throw publishError }
         let json = """
         {"id": 77, "title": "\(title)", "body": "\(body)", "body_truncated": false, "is_nsfw": \(isNSFW),
@@ -53,13 +65,15 @@ actor FakeComposeService: ComposeService {
     }
 }
 
-func myPost(_ id: Int64, parts: Int?) -> Post {
+func myPost(_ id: Int64, parts: Int?, mediaIDs: [Int64] = []) -> Post {
     let story = parts.map { #"{"id": 5, "part": \#($0), "parts": \#($0)}"# } ?? "null"
+    let media = mediaIDs.map { #"{"id": \#($0), "width": 100, "height": 100, "thumbhash": "AA==", "urls": {}}"# }
+        .joined(separator: ",")
     let json = """
     {"id": \(id), "title": "Ремонт Нивы", "body": "", "body_truncated": false, "is_nsfw": false,
      "score": 0, "comment_count": 0, "my_vote": 0, "created_at": "2026-10-01T12:00:00Z", "edited_at": null,
      "community": {"id": 3, "slug": "avto", "title": "Авто"},
-     "author": {"id": 2, "username": "me", "display_name": null}, "story": \(story)}
+     "author": {"id": 2, "username": "me", "display_name": null}, "story": \(story), "media": [\(media)]}
     """
     return try! JSON.decoder().decode(Post.self, from: Data(json.utf8))
 }
@@ -125,6 +139,62 @@ func myPost(_ id: Int64, parts: Int?) -> Post {
         m.draft.title = "Пост"
         _ = await m.publish()
         #expect(m.errorField == .body)
+    }
+
+    @Test func retryingADraftReusesUploadedPhotosAndKeepsTheirOrder() async throws {
+        let service = FakeComposeService()
+        let storage = MemoryDraftStorage()
+        let first = try await DraftPhotoFiles.shared.save(Data([1]))
+        let second = try await DraftPhotoFiles.shared.save(Data([2]))
+        defer { Task { await DraftPhotoFiles.shared.remove([first, second]) } }
+        let m = model(service, storage: storage, community: kotiki)
+        m.draft.title = "Фото"
+        m.draft.photos = [first, second]
+        await service.fail(with: .transport(.timedOut))
+        #expect(await m.publish() == nil)
+        #expect(storage.draft?.photos.compactMap(\.mediaID) == [101, 102])
+
+        let restored = model(service, storage: storage)
+        await service.fail(with: nil)
+        #expect(await restored.publish()?.id == 77)
+        #expect(await service.uploaded == [Data([1]), Data([2])])
+        #expect(await service.published.map(\.mediaIDs) == [[101, 102], [101, 102]])
+        #expect(storage.draft == nil)
+    }
+
+    @Test func anExpiredUploadCanBeRetriedFromTheLocalDraft() async throws {
+        let service = FakeComposeService()
+        let storage = MemoryDraftStorage()
+        var photo = try await DraftPhotoFiles.shared.save(Data([1]))
+        photo.mediaID = 30
+        defer { Task { [photo] in await DraftPhotoFiles.shared.remove([photo]) } }
+        let m = model(service, storage: storage, community: kotiki)
+        m.draft.title = "Фото"
+        m.draft.photos = [photo]
+        await service.expire(30)
+        await service.fail(with: .server(status: 422, code: "validation_failed", message: "", field: "media_ids"))
+
+        #expect(await m.publish() == nil)
+        #expect(storage.draft?.photos.first?.mediaID == nil)
+        #expect(storage.draft?.photos.first?.id == photo.id)
+        await service.fail(with: nil)
+        #expect(await m.publish()?.id == 77)
+        #expect(await service.uploaded == [Data([1])])
+    }
+
+    @Test func retryingAfterALostResponseOpensTheOriginalPost() async throws {
+        let service = FakeComposeService()
+        let storage = MemoryDraftStorage()
+        let own = PickedCommunity(slug: "avto", title: "Авто", isNSFW: false)
+        let m = model(service, storage: storage, community: own)
+        m.draft.title = "Фото"
+        m.draft.photos = [DraftPhoto(mediaID: 30)]
+        await service.remember(myPost(44, parts: nil, mediaIDs: [30]))
+        await service.fail(with: .server(status: 422, code: "validation_failed", message: "", field: "media_ids"))
+
+        #expect(await m.publish()?.id == 44)
+        #expect(await service.uploaded.isEmpty)
+        #expect(storage.draft == nil)
     }
 
     @Test func theDraftComesBackAndSavesItself() async throws {

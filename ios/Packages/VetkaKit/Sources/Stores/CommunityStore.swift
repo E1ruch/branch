@@ -110,17 +110,23 @@ public final class CommunityStore {
         guard latest[key] == generation else { return } // a newer tap took over
         // Tapped back to where the server already is: nothing to send.
         if confirmed[key]?.isSubscribed == subscribed {
-            if let old = confirmed[key] {
-                communities[key] = old
+            if let old = confirmed[key], let current = communities[key] {
+                communities[key] = current.with(isSubscribed: old.isSubscribed, subscribersCount: old.subscribersCount)
             }
             settle(key)
             return
         }
+        let before = communities[key]
         do {
             let result = try await send(key, subscribed)
             guard latest[key] == generation else { return }
             settle(key)
-            merge([result])
+            if let current = communities[key], current.iconUrl != before?.iconUrl || current.bannerUrl != before?.bannerUrl {
+                // The subscription response may predate a concurrent media edit.
+                communities[key] = current.with(isSubscribed: result.isSubscribed, subscribersCount: result.subscribersCount)
+            } else {
+                merge([result])
+            }
         } catch {
             guard latest[key] == generation else { return }
             let old = confirmed[key]
