@@ -62,7 +62,7 @@ struct PostDetailLayout: Sendable, Equatable {
     let titleFrame: CGRect
     let bodyFrame: CGRect
     let media: [Media]
-    let mediaFrames: [CGRect]
+    let mediaLayout: PostImagesLayout?
     let footerFrame: CGRect
     let contentHeight: CGFloat
     let height: CGFloat
@@ -111,10 +111,10 @@ struct PostDetailLayout: Sendable, Equatable {
         }
 
         let media = post.media
-        let mediaFrames = PostImages.frames(
+        let mediaLayout = PostImagesLayout.make(
             aspectRatios: media.map { CGFloat($0.width) / CGFloat(max(1, $0.height)) },
-            in: CGRect(x: inset.left, y: y + 10, width: contentWidth, height: 0), isPreview: false)
-        if let last = mediaFrames.last { y = last.maxY }
+            origin: CGPoint(x: inset.left, y: y + 10), width: contentWidth, isPreview: false)
+        if let mediaLayout { y = mediaLayout.frame.maxY }
 
         y += 8
         let footerFrame = CGRect(x: inset.left - 12, y: y, width: contentWidth + 24, height: footerHeight)
@@ -123,7 +123,7 @@ struct PostDetailLayout: Sendable, Equatable {
         return PostDetailLayout(width: width, title: post.title, body: body,
                                 avatarFrame: avatarFrame, authorFrame: authorFrame, metaFrame: metaFrame,
                                 moreFrame: moreFrame, titleFrame: titleFrame, bodyFrame: bodyFrame,
-                                media: media, mediaFrames: mediaFrames,
+                                media: media, mediaLayout: mediaLayout,
                                 footerFrame: footerFrame, contentHeight: ceil(y), height: ceil(y + gap))
     }
 }

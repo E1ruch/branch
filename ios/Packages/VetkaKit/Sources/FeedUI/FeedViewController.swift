@@ -250,6 +250,8 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
     private func handle(_ action: PostAction, post id: Int64) {
         guard let post = model.posts[id] else { return }
         switch action {
+        case .openPost:
+            open(.post(id: id))
         case let .vote(direction):
             model.tapVote(id, direction: direction)
         case .share:

@@ -75,7 +75,6 @@ final class PostDetailCell: UICollectionViewCell {
         shareButton.addAction(UIAction { [weak self] _ in self?.onAction?(.share) }, for: .touchUpInside)
         votes.onVote = { [weak self] direction in self?.onAction?(.vote(direction)) }
 
-        photos.isUserInteractionEnabled = false
         for view in [photos, avatar, authorButton, communityButton, moreButton, votes, commentsLabel, shareButton, gapView, skeleton] as [UIView] {
             contentView.addSubview(view)
         }
@@ -142,7 +141,7 @@ final class PostDetailCell: UICollectionViewCell {
         moreButton.frame = layout.moreFrame
         titleLabel.frame = layout.titleFrame
         bodyLabel.frame = layout.bodyFrame
-        photos.place(in: contentView.bounds, frames: layout.mediaFrames)
+        photos.place(layout.mediaLayout)
         let footer = layout.footerFrame
         votes.frame = CGRect(x: footer.minX, y: footer.minY, width: VoteControl.width, height: footer.height)
         commentsLabel.frame = CGRect(x: votes.frame.maxX + 10, y: footer.minY, width: 80, height: footer.height)

@@ -89,6 +89,49 @@ func makePost(_ id: Int64, title: String = "Заголовок", body: String = 
 }
 
 @Suite struct DesignSystemTests {
+    @Test func multiplePhotosShareOneRowAndRevealTheNextPhoto() throws {
+        let origin = CGPoint(x: 16, y: 100)
+        let ratios: [CGFloat] = [4, 0.75, 1.3, 0.5]
+        let preview = try #require(PostImagesLayout.make(aspectRatios: ratios, origin: origin, width: 358, isPreview: true))
+        let detail = try #require(PostImagesLayout.make(aspectRatios: ratios, origin: origin, width: 358, isPreview: false))
+
+        #expect(preview == detail)
+        #expect(preview.frame.origin == origin)
+        #expect(preview.imageFrames.count == ratios.count)
+        #expect(preview.imageFrames.allSatisfy { $0.minY == 0 && $0.height == preview.frame.height })
+        #expect(preview.imageFrames[0].maxX < preview.imageFrames[1].minX)
+        #expect(preview.imageFrames[1].minX < preview.frame.width)
+        #expect(preview.imageFrames[1].maxX > preview.frame.width)
+        #expect(try #require(preview.imageFrames.last).maxX > preview.frame.width)
+    }
+
+    @Test @MainActor func galleryKeepsOffsetOnRelayoutAndResetsOnReuse() throws {
+        let gallery = PostImagesView()
+        let layout = try #require(PostImagesLayout.make(
+            aspectRatios: [1, 1, 1], origin: .zero, width: 358, isPreview: true))
+        let photos = Array(repeating: (url: nil as URL?, thumbhash: ""), count: 3)
+        gallery.configure(photos, isPreview: true)
+        gallery.place(layout)
+
+        let scrollView = try #require(gallery.subviews.first as? UIScrollView)
+        #expect(gallery.isScrollable)
+        scrollView.contentOffset.x = 100
+        gallery.configure(photos, isPreview: true)
+        gallery.place(layout)
+        #expect(scrollView.contentOffset.x == 100)
+
+        gallery.configure([], isPreview: true)
+        gallery.configure(photos, isPreview: true)
+        gallery.place(layout)
+        #expect(scrollView.contentOffset == .zero)
+
+        let single = try #require(PostImagesLayout.make(aspectRatios: [1], origin: .zero, width: 358, isPreview: true))
+        gallery.configure([photos[0]], isPreview: true)
+        gallery.place(single)
+        #expect(!gallery.isScrollable)
+        #expect(single.imageFrames == [CGRect(origin: .zero, size: CGSize(width: 358, height: 358))])
+    }
+
     @Test(arguments: [(950, "950"), (1000, "1k"), (12_400, "12,4k"), (156_700, "156k"), (9_950, "9,9k"), (3_450_000, "3,4M"), (-1200, "−1,2k")])
     func compactCounters(value: Int, text: String) {
         // Decimal separator follows the locale; the tests run with Russian ones in mind.

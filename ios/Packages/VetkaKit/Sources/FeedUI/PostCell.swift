@@ -4,6 +4,7 @@ import UIKit
 
 /// What a post cell can ask its feed to do.
 enum PostAction {
+    case openPost
     case vote(Int)
     case share
     case copyLink
@@ -72,11 +73,11 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         shareButton.addAction(UIAction { [weak self] _ in self?.onAction?(.share) }, for: .touchUpInside)
         votes.onVote = { [weak self] direction in self?.onAction?(.vote(direction)) }
 
-        photos.isUserInteractionEnabled = false
         for view in [photos, avatar, moreButton, votes, commentsButton, shareButton, gapView] as [UIView] {
             contentView.addSubview(view)
         }
 
+        photos.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openPost)))
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSwipe))
         pan.delegate = self
         contentView.addGestureRecognizer(pan)
@@ -147,7 +148,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         moreButton.frame = layout.moreFrame
         titleLabel.frame = layout.titleFrame
         bodyLabel.frame = layout.bodyFrame
-        photos.place(in: contentView.bounds, frames: layout.mediaFrames)
+        photos.place(layout.mediaLayout)
         let footer = layout.footerFrame
         votes.frame = CGRect(x: footer.minX, y: footer.minY, width: VoteControl.width, height: footer.height)
         commentsButton.frame = CGRect(x: votes.frame.maxX + 10, y: footer.minY, width: 80, height: footer.height)
@@ -175,9 +176,17 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         contentView.transform = .identity
     }
 
+    @objc private func openPost() {
+        onAction?(.openPost)
+    }
+
     // MARK: Swipe to vote
 
     private var swipeArmed = false
+
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !(photos.isScrollable && touch.view?.isDescendant(of: photos) == true)
+    }
 
     /// Only clearly horizontal drags: vertical ones belong to the scroll.
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {

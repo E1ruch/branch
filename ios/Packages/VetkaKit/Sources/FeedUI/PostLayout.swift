@@ -48,7 +48,7 @@ struct PostLayout: Sendable, Equatable {
     let bodyText: String
     let bodyFrame: CGRect
     let bodyLines: Int
-    let mediaFrames: [CGRect]
+    let mediaLayout: PostImagesLayout?
     let footerFrame: CGRect
     /// Where the post ends and the gap to the next one begins.
     let contentHeight: CGFloat
@@ -98,10 +98,10 @@ struct PostLayout: Sendable, Equatable {
             y += bodyHeight
         }
 
-        let mediaFrames = PostImages.frames(
+        let mediaLayout = PostImagesLayout.make(
             aspectRatios: post.media.map { CGFloat($0.width) / CGFloat(max(1, $0.height)) },
-            in: CGRect(x: inset.left, y: y + 8, width: contentWidth, height: 0), isPreview: true)
-        if let last = mediaFrames.last { y = last.maxY }
+            origin: CGPoint(x: inset.left, y: y + 8), width: contentWidth, isPreview: true)
+        if let mediaLayout { y = mediaLayout.frame.maxY }
 
         y += 6
         // The vote buttons sit flush with the text's left edge by their glyph,
@@ -115,7 +115,7 @@ struct PostLayout: Sendable, Equatable {
                           avatarFrame: avatarFrame, authorFrame: authorFrame, metaFrame: metaFrame,
                           moreFrame: moreFrame, titleFrame: titleFrame,
                           bodyText: body, bodyFrame: bodyFrame, bodyLines: bodyLines,
-                          mediaFrames: mediaFrames,
+                          mediaLayout: mediaLayout,
                           footerFrame: footerFrame, contentHeight: ceil(y), height: ceil(y + gap))
     }
 
