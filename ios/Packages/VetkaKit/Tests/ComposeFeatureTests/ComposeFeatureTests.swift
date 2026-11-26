@@ -6,14 +6,15 @@ import Testing
 
 final class MemoryDraftStorage: DraftStorage, @unchecked Sendable {
     private let lock = NSLock()
-    private var stored: Draft?
+    private var stored = DraftLibrary()
 
-    init(_ draft: Draft? = nil) { stored = draft }
+    init(_ draft: Draft? = nil) {
+        if let draft { stored.saved = [SavedDraft(id: UUID(), draft: draft)] }
+    }
 
-    var draft: Draft? { lock.withLock { stored } }
-    func load() -> Draft? { lock.withLock { stored } }
-    func save(_ draft: Draft) { lock.withLock { stored = draft } }
-    func clear() { lock.withLock { stored = nil } }
+    var draft: Draft? { lock.withLock { stored.recovery?.draft } }
+    func load() -> DraftLibrary { lock.withLock { stored } }
+    func save(_ library: DraftLibrary) { lock.withLock { stored = library } }
 }
 
 func community(_ slug: String, id: Int64 = 1, nsfw: Bool = false) -> Community {
@@ -102,7 +103,9 @@ func myPost(_ id: Int64, parts: Int?, mediaIDs: [Int64] = []) -> Post {
 
     @Test func publishSendsTrimmedTextAndClearsTheDraft() async {
         let service = FakeComposeService()
-        let storage = MemoryDraftStorage()
+        var otherDraft = Draft()
+        otherDraft.title = "Другой пост"
+        let storage = MemoryDraftStorage(otherDraft)
         let m = model(service, storage: storage, community: kotiki)
         m.draft.title = "  Мой первый пост "
         m.draft.body = "\nТекст\n"
@@ -116,6 +119,7 @@ func myPost(_ id: Int64, parts: Int?, mediaIDs: [Int64] = []) -> Post {
         #expect(storage.draft == nil)
         m.saveNow() // the sheet closing after a publish
         #expect(storage.draft == nil)
+        #expect(storage.load().saved.map(\.draft.title) == ["Другой пост"])
     }
 
     @Test func aFailedPublishKeepsTheTextAndSaysWhy() async {
@@ -155,11 +159,13 @@ func myPost(_ id: Int64, parts: Int?, mediaIDs: [Int64] = []) -> Post {
         #expect(storage.draft?.photos.compactMap(\.mediaID) == [101, 102])
 
         let restored = model(service, storage: storage)
+        let saved = try #require(restored.savedDrafts.first)
+        restored.openSavedDraft(saved.id)
         await service.fail(with: nil)
         #expect(await restored.publish()?.id == 77)
         #expect(await service.uploaded == [Data([1]), Data([2])])
         #expect(await service.published.map(\.mediaIDs) == [[101, 102], [101, 102]])
-        #expect(storage.draft == nil)
+        #expect(storage.draft == nil && restored.savedDrafts.isEmpty)
     }
 
     @Test func anExpiredUploadCanBeRetriedFromTheLocalDraft() async throws {
@@ -197,21 +203,106 @@ func myPost(_ id: Int64, parts: Int?, mediaIDs: [Int64] = []) -> Post {
         #expect(storage.draft == nil)
     }
 
-    @Test func theDraftComesBackAndSavesItself() async throws {
+    @Test func closingWithSaveLeavesTheNextEditorEmpty() throws {
+        let storage = MemoryDraftStorage()
+        let editor = model(storage: storage, community: kotiki)
+        editor.draft.title = "Первый"
+        editor.draft.body = "Текст"
+        editor.saveToDraftsAndClose()
+        editor.saveNow()
+
+        let next = model(storage: storage)
+        #expect(next.draft == Draft())
+        let saved = try #require(next.savedDrafts.first)
+        next.openSavedDraft(saved.id)
+        #expect(next.draft.title == "Первый" && next.draft.body == "Текст" && next.draft.community == kotiki)
+        next.draft.title = "Исправленный"
+        next.saveToDraftsAndClose()
+
+        let reopened = model(storage: storage)
+        #expect(reopened.draft == Draft())
+        #expect(reopened.savedDrafts.map(\.id) == [saved.id])
+        #expect(reopened.savedDrafts.map(\.draft.title) == ["Исправленный"])
+    }
+
+    @Test func autosaveIsRecoveredThroughDraftsAndDiscardKeepsTheSavedVersion() async throws {
         var saved = Draft()
         saved.title = "Недописанное"
         saved.community = kotiki
         let storage = MemoryDraftStorage(saved)
         let m = model(storage: storage)
-        #expect(m.draft.title == "Недописанное" && m.draft.community == kotiki)
+        #expect(m.draft == Draft())
+        let original = try #require(m.savedDrafts.first)
+        m.openSavedDraft(original.id)
 
         m.draft.body = "ещё текст"
         try await Task.sleep(for: .milliseconds(100))
         #expect(storage.draft?.body == "ещё текст")
 
+        let afterInterruption = model(storage: storage)
+        #expect(afterInterruption.draft == Draft())
+        #expect(afterInterruption.savedDrafts.map(\.id) == [original.id])
+        #expect(afterInterruption.savedDrafts.first?.draft.body == "ещё текст")
         m.discard()
         try await Task.sleep(for: .milliseconds(50))
         #expect(storage.draft == nil && !m.hasContent)
+        #expect(m.savedDrafts.first?.draft == saved)
+    }
+
+    @Test func savingAnotherPostAndDeletingOneDraftLeavesTheOtherDraft() throws {
+        let storage = MemoryDraftStorage()
+        let first = model(storage: storage)
+        first.draft.title = "Первый"
+        first.saveToDraftsAndClose()
+
+        let second = model(storage: storage)
+        second.draft.title = "Второй"
+        second.saveToDraftsAndClose()
+
+        let drafts = model(storage: storage)
+        #expect(drafts.savedDrafts.map(\.draft.title) == ["Второй", "Первый"])
+        let toDelete = try #require(drafts.savedDrafts.first)
+        drafts.deleteSavedDraft(toDelete.id)
+        #expect(model(storage: storage).savedDrafts.map(\.draft.title) == ["Первый"])
+    }
+
+    @Test func theOldSingleDraftIsAvailableInTheListAfterUpdating() throws {
+        let defaults = UserDefaults.standard
+        let previousUser = defaults.object(forKey: "compose.lastUserID")
+        let userID = Int64.random(in: 1...Int64.max)
+        let key = "compose.draft.\(userID)"
+        defer {
+            defaults.removeObject(forKey: key)
+            defaults.set(previousUser, forKey: "compose.lastUserID")
+        }
+        var legacy = Draft()
+        legacy.title = "Старый черновик"
+        legacy.community = kotiki
+        defaults.set(try JSONEncoder().encode(legacy), forKey: key)
+
+        let storage = UserDefaultsDraftStorage(userID: userID)
+        let editor = ComposeModel(service: FakeComposeService(), storage: storage)
+        #expect(editor.draft == Draft())
+        let saved = try #require(editor.savedDrafts.first)
+        #expect(saved.draft == legacy)
+        editor.openSavedDraft(saved.id)
+        editor.saveToDraftsAndClose()
+        #expect(storage.load().saved.map(\.id) == [saved.id])
+    }
+
+    @Test func removingAnAttachmentAndDiscardingChangesKeepsTheSavedFile() async throws {
+        let file = try await DraftPhotoFiles.shared.save(Data([1]))
+        defer { Task { await DraftPhotoFiles.shared.remove([file]) } }
+        var saved = Draft()
+        saved.photos = [file]
+        let storage = MemoryDraftStorage(saved)
+        let editor = model(storage: storage)
+        let original = try #require(editor.savedDrafts.first)
+        editor.openSavedDraft(original.id)
+        editor.removePhoto(file)
+        editor.discard()
+        #expect(model(storage: storage).savedDrafts.first?.draft.photos == [file])
+        #expect(try await DraftPhotoFiles.shared.read(file) == Data([1]))
     }
 
     @Test func aCommunityPassedInWinsOverTheDraftsOne() {

@@ -125,14 +125,25 @@ public struct Draft: Codable, Equatable, Sendable {
     }
 }
 
-public protocol DraftStorage: Sendable {
-    func load() -> Draft?
-    func save(_ draft: Draft)
-    func clear()
+struct SavedDraft: Codable, Identifiable, Sendable {
+    let id: UUID
+    let draft: Draft
 }
 
-/// One draft per account, so signing in as someone else never shows
-/// another person's text.
+public struct DraftLibrary: Codable, Sendable {
+    var saved: [SavedDraft] = []
+    /// A working copy survives an interruption and is offered in the draft list.
+    var recovery: SavedDraft?
+
+    public init() {}
+}
+
+public protocol DraftStorage: Sendable {
+    func load() -> DraftLibrary
+    func save(_ library: DraftLibrary)
+}
+
+/// Drafts are stored separately for each account.
 public struct UserDefaultsDraftStorage: DraftStorage {
     private let key: String
     private static let lastUserKey = "compose.lastUserID"
@@ -148,18 +159,24 @@ public struct UserDefaultsDraftStorage: DraftStorage {
         key = "compose.draft.\(id)"
     }
 
-    public func load() -> Draft? {
-        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(Draft.self, from: $0) }
+    public func load() -> DraftLibrary {
+        var library = DraftLibrary()
+        guard let data = UserDefaults.standard.data(forKey: key) else { return library }
+        let decoder = JSONDecoder()
+        if let decoded = try? decoder.decode(DraftLibrary.self, from: data) { return decoded }
+        // Older builds kept one draft directly under this key.
+        if let draft = try? decoder.decode(Draft.self, from: data), !draft.isEmpty {
+            library.saved = [SavedDraft(id: UUID(), draft: draft)]
+        }
+        return library
     }
 
-    public func save(_ draft: Draft) {
-        if let data = try? JSONEncoder().encode(draft) {
+    public func save(_ library: DraftLibrary) {
+        if library.saved.isEmpty && library.recovery == nil {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else if let data = try? JSONEncoder().encode(library) {
             UserDefaults.standard.set(data, forKey: key)
         }
-    }
-
-    public func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
     }
 }
 
@@ -191,25 +208,31 @@ public final class ComposeModel {
     private let service: any ComposeService
     private let storage: any DraftStorage
     private let saveDelay: Duration
+    private var recoveryID = UUID()
+    private var library: DraftLibrary
+    private var editingSavedID: UUID?
+    private var supersededPhotos: [DraftPhoto] = []
     private var saveTask: Task<Void, Never>?
-    /// Published: the closing sheet must not save the text back as a draft.
-    private var isPublished = false
+    private var isFinished = false
 
-    /// `community` preselects where to post (opened from a community page),
-    /// `continues` the story to add a part to (from a post's menu); either
-    /// wins over the saved draft's.
+    /// The entry point can preselect a community or story for the new post.
     public init(service: any ComposeService, storage: any DraftStorage, community: PickedCommunity? = nil,
                 continues: ContinuedPost? = nil, saveDelay: Duration = .milliseconds(400)) {
         self.service = service
         self.storage = storage
         self.saveDelay = saveDelay
-        var draft = storage.load() ?? Draft()
-        if let community {
-            draft.community = community
+        var library = storage.load()
+        if let recovery = library.recovery {
+            if let index = library.saved.firstIndex(where: { $0.id == recovery.id }) {
+                supersededPhotos = library.saved.remove(at: index).draft.photos
+            }
+            library.saved.insert(recovery, at: 0)
+            library.recovery = nil
         }
-        if let continues {
-            draft.continues = continues
-        }
+        self.library = library
+        var draft = Draft()
+        draft.community = community
+        draft.continues = continues
         self.draft = draft
     }
 
@@ -248,7 +271,7 @@ public final class ComposeModel {
     /// Everything but the community is in order: the publish button is
     /// live and, without a community, opens the settings instead.
     public var isReadyExceptCommunity: Bool {
-        !isPublishing && !isPreparingPhotos && !trimmedTitle.isEmpty
+        !isFinished && !isPublishing && !isPreparingPhotos && !trimmedTitle.isEmpty
             && draft.title.count <= Self.maxTitle && draft.body.count <= Self.maxBody
     }
 
@@ -267,38 +290,95 @@ public final class ComposeModel {
 
     // MARK: Draft
 
+    var savedDrafts: [SavedDraft] { library.saved }
+
     private func scheduleSave() {
         saveTask?.cancel()
-        guard !isPublished else { return }
-        let draft = self.draft
-        saveTask = Task { [storage, saveDelay] in
+        guard !isFinished else { return }
+        saveTask = Task { [weak self, saveDelay] in
             try? await Task.sleep(for: saveDelay)
             guard !Task.isCancelled else { return }
-            if draft.isEmpty && draft.community == nil {
-                storage.clear()
-            } else {
-                storage.save(draft)
-            }
+            self?.saveNow()
         }
     }
 
-    /// The composer is closing: write the draft now, not after the delay.
-    public func saveNow() {
+    /// Keep a copy for recovery while editing, including after a failed publish.
+    func saveNow(removing removedPhotos: [DraftPhoto] = []) {
         saveTask?.cancel()
-        guard !isPublished else { return }
-        if hasContent || draft.community != nil {
-            storage.save(draft)
-        } else {
-            storage.clear()
+        guard !isFinished else { return }
+        let previousPhotos = library.recovery?.draft.photos ?? []
+        let original = library.saved.first { $0.id == editingSavedID }
+        library.recovery = hasContent && draft != original?.draft
+            ? SavedDraft(id: editingSavedID ?? recoveryID, draft: draft) : nil
+        persist(removing: previousPhotos + removedPhotos)
+    }
+
+    func saveToDraftsAndClose() {
+        isFinished = true
+        archiveDraft()
+    }
+
+    private func archiveDraft() {
+        saveTask?.cancel()
+        var replacedPhotos = library.recovery?.draft.photos ?? []
+        if hasContent {
+            let id = editingSavedID ?? recoveryID
+            if let index = library.saved.firstIndex(where: { $0.id == id }) {
+                replacedPhotos += library.saved.remove(at: index).draft.photos
+            }
+            library.saved.insert(SavedDraft(id: id, draft: draft), at: 0)
         }
+        library.recovery = nil
+        persist(removing: replacedPhotos)
+    }
+
+    func openSavedDraft(_ id: UUID) {
+        guard editingSavedID != id, let saved = library.saved.first(where: { $0.id == id }) else { return }
+        archiveDraft()
+        recoveryID = UUID()
+        editingSavedID = id
+        draft = saved.draft
+    }
+
+    func deleteSavedDraft(_ id: UUID) {
+        guard let index = library.saved.firstIndex(where: { $0.id == id }) else { return }
+        var removedPhotos = library.saved.remove(at: index).draft.photos
+        if editingSavedID == id {
+            editingSavedID = nil
+            saveTask?.cancel()
+            removedPhotos += library.recovery?.draft.photos ?? []
+            library.recovery = nil
+        }
+        persist(removing: removedPhotos)
     }
 
     public func discard() {
-        let photos = draft.photos
+        isFinished = true
+        finishEditing(removingSavedDraft: false)
         draft = Draft()
+    }
+
+    private func finishEditing(removingSavedDraft: Bool) {
         saveTask?.cancel()
-        storage.clear()
-        Task { await DraftPhotoFiles.shared.remove(photos) }
+        var removedPhotos = draft.photos + (library.recovery?.draft.photos ?? [])
+        library.recovery = nil
+        if removingSavedDraft, let index = library.saved.firstIndex(where: { $0.id == editingSavedID }) {
+            removedPhotos += library.saved.remove(at: index).draft.photos
+        }
+        persist(removing: removedPhotos)
+    }
+
+    private func persist(removing candidates: [DraftPhoto] = []) {
+        storage.save(library)
+        let candidates = candidates + supersededPhotos
+        supersededPhotos = []
+        guard !candidates.isEmpty else { return }
+        let savedPhotos = library.saved.flatMap(\.draft.photos) + (library.recovery?.draft.photos ?? [])
+        let retained = Set((savedPhotos + (isFinished ? [] : draft.photos)).map(\.id))
+        let unused = candidates.filter { !retained.contains($0.id) }
+        if !unused.isEmpty {
+            Task { await DraftPhotoFiles.shared.remove(unused) }
+        }
     }
 
     // MARK: Photos
@@ -331,8 +411,7 @@ public final class ComposeModel {
     func removePhoto(_ photo: DraftPhoto) {
         guard !isPublishing else { return }
         draft.photos.removeAll { $0.id == photo.id }
-        saveNow()
-        Task { await DraftPhotoFiles.shared.remove([photo]) }
+        saveNow(removing: [photo])
     }
 
     // MARK: Publishing
@@ -373,7 +452,7 @@ public final class ComposeModel {
         do {
             let post = try await service.publish(community: community.slug, title: title,
                                                  body: body, isNSFW: isNSFW, continues: continues, mediaIDs: mediaIDs)
-            await finishPublishing()
+            finishPublishing()
             return post
         } catch .server(_, "validation_failed", _, "media_ids") where !mediaIDs.isEmpty {
             return await recoverPhotos(mediaIDs, in: community.slug)
@@ -385,11 +464,9 @@ public final class ComposeModel {
         }
     }
 
-    private func finishPublishing() async {
-        isPublished = true
-        saveTask?.cancel()
-        storage.clear()
-        await DraftPhotoFiles.shared.remove(draft.photos)
+    private func finishPublishing() {
+        isFinished = true
+        finishEditing(removingSavedDraft: true)
         Haptics.success()
     }
 
@@ -400,7 +477,7 @@ public final class ComposeModel {
             if let post = try await service.myPosts().first(where: {
                 $0.community.slug == slug && $0.media.map(\.id) == ids
             }) {
-                await finishPublishing()
+                finishPublishing()
                 return post
             }
 

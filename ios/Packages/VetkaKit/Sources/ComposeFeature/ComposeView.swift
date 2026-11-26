@@ -3,13 +3,14 @@ import DesignSystem
 import Networking
 import PhotosUI
 import SwiftUI
+import UIKit
 
 /// The "+" sheet, in the spirit of Telegram's "new channel": the title in a
 /// rounded field (up to three lines, with a clear button), the text in
 /// another that styles markdown as it is typed. Formatting lives in the
 /// edit menu of a selection, not on screen; the paperclip sits
 /// by the length; the publish settings open from the subtitle under
-/// "Новый пост". The draft saves itself, so closing loses nothing.
+/// "Новый пост". Saved drafts open from the navigation bar.
 public struct ComposeView: View {
     @State private var model: ComposeModel
     private let service: any ComposeService
@@ -20,6 +21,8 @@ public struct ComposeView: View {
     @State private var bodyFocused = false
     @State private var editor = MarkdownEditor()
     @State private var isShowingSettings = false
+    @State private var isShowingDrafts = false
+    @State private var isShowingScheduleNotice = false
     @State private var isConfirmingClose = false
     @State private var photoSelection: [PhotosPickerItem] = []
 
@@ -63,6 +66,9 @@ public struct ComposeView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                publishBar
+            }
             .background(Color.vetkaSurface)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
@@ -75,25 +81,38 @@ public struct ComposeView: View {
                 ToolbarItem(placement: .principal) {
                     navigationTitle
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    publishButton
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: openDrafts) {
+                        Image(systemName: "doc.text")
+                    }
+                    .accessibilityLabel("Черновики")
+                    .accessibilityIdentifier("compose.drafts")
+                    .disabled(model.isPublishing || model.isPreparingPhotos)
+                    moreMenu
+                        .disabled(model.isPublishing || model.isPreparingPhotos)
                 }
             }
-            .confirmationDialog("Сохранить черновик?", isPresented: $isConfirmingClose, titleVisibility: .visible) {
-                Button("Сохранить черновик") {
-                    model.saveNow()
+            .alert("Сохранить пост в черновиках?", isPresented: $isConfirmingClose) {
+                Button("Сохранить в черновиках") {
+                    model.saveToDraftsAndClose()
                     dismiss()
                 }
-                Button("Удалить", role: .destructive) {
+                Button("Не сохранять", role: .destructive) {
                     model.discard()
                     dismiss()
                 }
-                Button("Продолжить", role: .cancel) {}
-            } message: {
-                Text("Он откроется, когда вы снова нажмёте «+».")
+                Button("Продолжить редактирование", role: .cancel) {}
             }
             .sheet(isPresented: $isShowingSettings) {
                 PublishSettingsView(model: model, service: service)
+            }
+            .sheet(isPresented: $isShowingDrafts) {
+                ComposeDraftsView(model: model)
+            }
+            .alert("Запланировать публикацию", isPresented: $isShowingScheduleNotice) {
+                Button("Понятно", role: .cancel) {}
+            } message: {
+                Text("Отложенная публикация пока недоступна.")
             }
         }
         // A title has no line breaks: Return moves on to the text.
@@ -122,8 +141,8 @@ public struct ComposeView: View {
             await model.addPhotos(photoSelection)
             if !Task.isCancelled { photoSelection = [] }
         }
-        .interactiveDismissDisabled(model.isPublishing || model.isPreparingPhotos)
-        // Swiping the sheet down keeps the draft for next time.
+        .background(ComposeDismissalHandler(onAttempt: close))
+        .interactiveDismissDisabled(model.hasContent || model.isPublishing || model.isPreparingPhotos)
         .onDisappear { model.saveNow() }
     }
 
@@ -229,6 +248,7 @@ public struct ComposeView: View {
                 HStack(spacing: 3) {
                     Text(settingsSummary)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .bold))
                 }
@@ -253,6 +273,32 @@ public struct ComposeView: View {
         return parts.joined(separator: " · ")
     }
 
+    private var moreMenu: some View {
+        Menu {
+            Button {
+                hideKeyboard()
+                isShowingScheduleNotice = true
+            } label: {
+                Label("Запланировать…", systemImage: "clock")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("Ещё")
+        .accessibilityIdentifier("compose.more")
+    }
+
+    private var publishBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            publishButton
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, Spacing.l)
+                .padding(.vertical, Spacing.s)
+        }
+        .background(Color.vetkaSurface)
+    }
+
     private var publishButton: some View {
         Button {
             // Everything but the community is there: ask where it goes.
@@ -268,15 +314,14 @@ public struct ComposeView: View {
                 }
             }
         } label: {
-            if model.isPublishing {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .bold))
-            }
+            Text("Опубликовать")
+                .frame(minHeight: 44)
+                .opacity(model.isPublishing ? 0 : 1)
+                .overlay {
+                    if model.isPublishing { ProgressView().controlSize(.small) }
+                }
         }
-        .buttonStyle(PublishButtonStyle())
+        .buttonStyle(.vetkaPrimary(fullWidth: false))
         .disabled(!model.isReadyExceptCommunity)
         .accessibilityLabel("Опубликовать")
         .accessibilityHint(model.missing ?? "")
@@ -362,42 +407,149 @@ public struct ComposeView: View {
         isShowingSettings = true
     }
 
+    private func openDrafts() {
+        hideKeyboard()
+        isShowingDrafts = true
+    }
+
     private func hideKeyboard() {
         titleFocused = false
         bodyFocused = false
     }
 
     private func close() {
+        guard !model.isPublishing, !model.isPreparingPhotos else { return }
         if model.hasContent {
             isConfirmingClose = true
         } else {
-            model.saveNow() // keeps a chosen community, drops nothing else
+            model.discard()
             dismiss()
         }
     }
 }
 
-/// The toolbar's publish button: a green circle with an arrow, like the
-/// comment field's send. Token colors for enabled, pressed, disabled.
-private struct PublishButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        PublishButtonLabel(configuration: configuration)
+private struct ComposeDraftsView: View {
+    let model: ComposeModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftToDelete: SavedDraft?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if !model.savedDrafts.isEmpty {
+                    List {
+                        ForEach(model.savedDrafts) { saved in
+                            draftRow(saved)
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                } else {
+                    ContentUnavailableView("Черновиков пока нет", systemImage: "doc.text")
+                }
+            }
+            .background(Color.vetkaBackground)
+            .navigationTitle("Черновики")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Готово") { dismiss() }
+                }
+            }
+            .alert("Удалить черновик?", isPresented: Binding(
+                get: { draftToDelete != nil },
+                set: { if !$0 { draftToDelete = nil } }
+            ), presenting: draftToDelete) { saved in
+                Button("Удалить", role: .destructive) { model.deleteSavedDraft(saved.id) }
+                Button("Отмена", role: .cancel) {}
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
-    private struct PublishButtonLabel: View {
-        let configuration: Configuration
-        @Environment(\.isEnabled) private var isEnabled
+    private func draftRow(_ saved: SavedDraft) -> some View {
+        HStack(spacing: Spacing.s) {
+            Button {
+                model.openSavedDraft(saved.id)
+                dismiss()
+            } label: {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text(draftTitle(saved.draft))
+                        .font(.headline)
+                        .foregroundStyle(Color.vetkaTextPrimary)
+                        .lineLimit(2)
+                    if let community = saved.draft.community {
+                        Text(community.title)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.vetkaSecondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("compose.drafts.open")
 
-        var body: some View {
-            configuration.label
-                .foregroundStyle(Color(uiColor: Palette.buttonPrimaryText))
-                .tint(Color(uiColor: Palette.buttonPrimaryText))
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Color(uiColor: !isEnabled ? Palette.buttonPrimaryDisabled
-                    : configuration.isPressed ? Palette.buttonPrimaryPressed : Palette.buttonPrimary)))
-                .contentShape(Circle())
-                .scaleEffect(configuration.isPressed ? 0.96 : 1)
-                .animation(.vetkaSnappy, value: configuration.isPressed)
+            Menu {
+                Button(role: .destructive) { draftToDelete = saved } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Ещё")
+            .accessibilityIdentifier("compose.drafts.menu")
+        }
+    }
+
+    private func draftTitle(_ draft: Draft) -> String {
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { return title }
+        let body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !body.isEmpty { return body }
+        return "Пост с фото"
+    }
+}
+
+/// Route an interactive sheet dismissal through the same choices as «Отмена».
+private struct ComposeDismissalHandler: UIViewControllerRepresentable {
+    let onAttempt: () -> Void
+
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onAttempt = onAttempt
+        controller.observePresentation()
+    }
+
+    final class Controller: UIViewController, UIAdaptivePresentationControllerDelegate {
+        var onAttempt: (() -> Void)?
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            observePresentation()
+        }
+
+        func observePresentation() {
+            var ancestor = parent
+            while let controller = ancestor {
+                if let presentation = controller.presentationController,
+                   presentation.presentedViewController === controller {
+                    presentation.delegate = self
+                    return
+                }
+                ancestor = controller.parent
+            }
+        }
+
+        func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool { false }
+
+        func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+            onAttempt?()
         }
     }
 }
