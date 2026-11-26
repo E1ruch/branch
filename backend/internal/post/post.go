@@ -26,6 +26,7 @@ var (
 	ErrStoryNotFound = errors.New("post: the post to continue is not found")
 	// Only a post's author may add parts to its story.
 	ErrNotStoryAuthor = errors.New("post: only the author can continue the story")
+	errEmptyPost      = &ValidationError{"content", "a post needs a title, text or an image"}
 )
 
 type ValidationError struct {
@@ -178,11 +179,14 @@ type CreateInput struct {
 func (s *Service) Create(ctx context.Context, authorID int64, communitySlug string, in CreateInput) (Post, error) {
 	in.Title = strings.TrimSpace(in.Title)
 	in.Body = strings.TrimSpace(in.Body)
-	if err := validateLen("title", in.Title, 1, maxTitle); err != nil {
+	if err := validateLen("title", in.Title, 0, maxTitle); err != nil {
 		return Post{}, err
 	}
 	if err := validateLen("body", in.Body, 0, maxBody); err != nil {
 		return Post{}, err
+	}
+	if in.Title == "" && in.Body == "" && len(in.MediaIDs) == 0 {
+		return Post{}, errEmptyPost
 	}
 
 	var communityID int64
@@ -338,7 +342,7 @@ func (s *Service) Edit(ctx context.Context, id, userID int64, body string) (Post
 	if err := validateLen("body", body, 0, maxBody); err != nil {
 		return Post{}, err
 	}
-	if err := s.checkAuthor(ctx, id, userID); err != nil {
+	if err := s.checkEdit(ctx, id, userID, body != ""); err != nil {
 		return Post{}, err
 	}
 	if _, err := s.db.Exec(ctx,
@@ -368,10 +372,15 @@ func (s *Service) Delete(ctx context.Context, id, userID int64) error {
 	return err
 }
 
-func (s *Service) checkAuthor(ctx context.Context, id, userID int64) error {
+func (s *Service) checkEdit(ctx context.Context, id, userID int64, hasBody bool) error {
 	var authorID *int64
-	err := s.db.QueryRow(ctx,
-		`SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&authorID)
+	var hasContent bool
+	err := s.db.QueryRow(ctx, `
+		SELECT author_id, $2::boolean OR title <> '' OR EXISTS (
+			SELECT 1 FROM media m WHERE m.post_id = p.id AND m.status = 'ready'
+			  AND m.kind = 'image' AND m.thumbhash IS NOT NULL
+		)
+		FROM posts p WHERE id = $1 AND deleted_at IS NULL`, id, hasBody).Scan(&authorID, &hasContent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -380,6 +389,9 @@ func (s *Service) checkAuthor(ctx context.Context, id, userID int64) error {
 	}
 	if authorID == nil || *authorID != userID {
 		return ErrForbidden
+	}
+	if !hasContent {
+		return errEmptyPost
 	}
 	return nil
 }

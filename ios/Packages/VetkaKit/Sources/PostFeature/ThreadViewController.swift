@@ -347,7 +347,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         case let .vote(direction):
             model.tapPostVote(direction: direction)
         case .share:
-            let share = UIActivityViewController(activityItems: [post.title, Route.shareURL(postID: post.id)],
+            let share = UIActivityViewController(activityItems: [post.summaryTitle, Route.shareURL(postID: post.id)],
                                                  applicationActivities: nil)
             share.popoverPresentationController?.sourceView = collectionView
             present(share, animated: true)

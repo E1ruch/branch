@@ -303,7 +303,7 @@ struct MarkdownTextView: UIViewRepresentable {
         let textView = UITextView()
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
-        textView.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 8, right: 12)
+        textView.textContainerInset = UIEdgeInsets(top: 3, left: 0, bottom: 4, right: 0)
         textView.textContainer.lineFragmentPadding = 0
         textView.adjustsFontForContentSizeCategory = true
         textView.tintColor = Palette.accent
@@ -318,13 +318,13 @@ struct MarkdownTextView: UIViewRepresentable {
         placeholderLabel.text = placeholder
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
-        placeholderLabel.textColor = Palette.textTertiary
+        placeholderLabel.textColor = Palette.textSecondary
         placeholderLabel.isAccessibilityElement = false
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         textView.addSubview(placeholderLabel)
         NSLayoutConstraint.activate([
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 12),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 12),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: textView.textContainerInset.top),
         ])
         placeholderLabel.isHidden = textView.textStorage.length > 0
 

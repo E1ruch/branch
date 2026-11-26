@@ -78,9 +78,12 @@ struct PostLayout: Sendable, Equatable {
         let metaFrame = CGRect(x: textX, y: authorFrame.maxY + 1, width: textWidth, height: metaHeight)
         y += max(avatarSize, textBlock) + 10
 
-        let titleHeight = measure(post.title, font: fonts.title, width: contentWidth)
-        let titleFrame = CGRect(x: inset.left, y: y, width: contentWidth, height: titleHeight)
-        y += titleHeight
+        var titleFrame = CGRect.zero
+        if !post.title.isEmpty {
+            let titleHeight = measure(post.title, font: fonts.title, width: contentWidth)
+            titleFrame = CGRect(x: inset.left, y: y, width: contentWidth, height: titleHeight)
+            y += titleHeight
+        }
 
         var body = post.body.trimmingCharacters(in: .whitespacesAndNewlines)
         if post.bodyTruncated && !body.isEmpty {
@@ -89,7 +92,7 @@ struct PostLayout: Sendable, Equatable {
         var bodyFrame = CGRect.zero
         var bodyLines = 0
         if !body.isEmpty {
-            y += 6
+            if !titleFrame.isEmpty { y += 6 }
             let full = measure(body, font: fonts.body, width: contentWidth)
             let capped = ceil(fonts.body.lineHeight * CGFloat(maxBodyLines))
             let bodyHeight = min(full, capped)

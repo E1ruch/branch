@@ -109,6 +109,7 @@ final class PostDetailCell: UICollectionViewCell {
         communityButton.accessibilityLabel = "\(meta.joined(separator: ", ")). Открыть сообщество \(post.community.title)"
         titleLabel.font = fonts.postTitle
         titleLabel.text = post.title
+        titleLabel.isHidden = post.title.isEmpty
         bodyLabel.font = fonts.postBody
         bodyLabel.text = layout.body
         bodyLabel.isHidden = layout.body.isEmpty
@@ -732,14 +733,14 @@ final class StoryCell: UICollectionViewCell {
         previousButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: arrow), for: .normal)
         previousButton.isEnabled = previous != nil
         previousButton.tintColor = previous != nil ? Palette.accent : Palette.iconDisabled
-        previousButton.accessibilityLabel = previous.map { "Часть \($0.part): \($0.title)" } ?? "Это первая часть"
+        previousButton.accessibilityLabel = previous.map(storyPartLabel) ?? "Это первая часть"
 
         if continues {
             nextButton.setImage(UIImage(systemName: "plus", withConfiguration: arrow), for: .normal)
             nextButton.accessibilityLabel = "Добавить следующую часть"
         } else {
             nextButton.setImage(UIImage(systemName: "chevron.right", withConfiguration: arrow), for: .normal)
-            nextButton.accessibilityLabel = next.map { "Часть \($0.part): \($0.title)" } ?? "Это последняя часть"
+            nextButton.accessibilityLabel = next.map(storyPartLabel) ?? "Это последняя часть"
         }
         nextButton.isEnabled = next != nil || continues
         nextButton.tintColor = nextButton.isEnabled ? Palette.accent : Palette.iconDisabled
@@ -760,14 +761,20 @@ final class StoryCell: UICollectionViewCell {
         partsButton.configuration = config
         partsButton.accessibilityLabel = "История, часть \(story.part) из \(story.parts)"
         partsButton.accessibilityHint = parts.count > 1 ? "Все части" : nil
+        let firstTitle = parts.first?.title ?? ""
         partsButton.menu = parts.count > 1
-            ? UIMenu(title: parts.first.map { "«\($0.title)»" } ?? "", children: parts.map { part in
-                UIAction(title: "\(part.part). \(part.title)", state: part.postId == currentID ? .on : .off) { [weak self] _ in
+            ? UIMenu(title: firstTitle.isEmpty ? "История" : "«\(firstTitle)»", children: parts.map { part in
+                let title = part.title.isEmpty ? storyPartLabel(part) : "\(part.part). \(part.title)"
+                return UIAction(title: title, state: part.postId == currentID ? .on : .off) { [weak self] _ in
                     if part.postId != currentID { self?.onOpen?(part.postId) }
                 }
             })
             : nil
         setNeedsLayout()
+    }
+
+    private func storyPartLabel(_ part: StoryPart) -> String {
+        part.title.isEmpty ? "Часть \(part.part)" : "Часть \(part.part): \(part.title)"
     }
 
     override func layoutSubviews() {

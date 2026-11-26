@@ -89,16 +89,37 @@ func myPost(_ id: Int64, parts: Int?, mediaIDs: [Int64] = []) -> Post {
                      saveDelay: .milliseconds(10))
     }
 
-    @Test func publishingNeedsACommunityAndATitle() {
+    @Test func publishingNeedsContentAndACommunity() {
         let m = model()
-        #expect(!m.canPublish && m.missing == "Выберите сообщество")
+        #expect(!m.isReadyExceptCommunity && m.missing == "Добавьте текст, заголовок или фото")
+        m.draft.body = "Текст"
+        #expect(m.isReadyExceptCommunity && !m.canPublish && m.missing == "Выберите сообщество")
         m.draft.community = kotiki
-        m.draft.title = "   "
-        #expect(!m.canPublish && m.missing == "Напишите заголовок")
+        #expect(m.canPublish && m.missing == nil)
+        m.draft.body = "   "
+        #expect(!m.canPublish)
         m.draft.title = "Привет"
         #expect(m.canPublish && m.missing == nil)
         m.draft.title = String(repeating: "я", count: ComposeModel.maxTitle + 1)
         #expect(!m.canPublish && m.titleRemaining == -1)
+    }
+
+    @Test func publishesTextOrPhotosWithAnEmptyTitle() async throws {
+        let service = FakeComposeService()
+        let text = model(service, community: kotiki)
+        text.draft.title = "   "
+        text.draft.body = "Текст без заголовка"
+        #expect(await text.publish()?.title == "")
+
+        let photo = try await DraftPhotoFiles.shared.save(Data([1]))
+        defer { Task { await DraftPhotoFiles.shared.remove([photo]) } }
+        let photos = model(service, community: kotiki)
+        photos.draft.photos = [photo]
+        #expect(await photos.publish()?.title == "")
+        let sent = await service.published
+        #expect(sent.map(\.title) == ["", ""])
+        #expect(sent.map(\.body) == ["Текст без заголовка", ""])
+        #expect(sent.map(\.mediaIDs) == [[], [101]])
     }
 
     @Test func publishSendsTrimmedTextAndClearsTheDraft() async {

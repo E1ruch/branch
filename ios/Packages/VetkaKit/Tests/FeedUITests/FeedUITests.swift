@@ -46,6 +46,15 @@ func makePost(_ id: Int64, title: String = "Заголовок", body: String = 
         #expect(layout.height >= layout.footerFrame.maxY)
     }
 
+    @Test func anUntitledPostStartsWithItsBody() throws {
+        let text = "Пост без заголовка"
+        let post = try makePost(1, title: "", body: text)
+        let layout = PostLayout.make(for: post, width: 390, fonts: fonts)
+        #expect(layout.titleFrame == .zero)
+        #expect(layout.bodyFrame.minY == max(layout.avatarFrame.maxY, layout.metaFrame.maxY) + 10)
+        #expect(layout.bodyText == text && post.summaryTitle == text)
+    }
+
     @Test func narrowerScreensWrapMore() throws {
         let post = try makePost(1, title: String(repeating: "Длинный заголовок ", count: 6))
         #expect(PostLayout.make(for: post, width: 320, fonts: fonts).height > PostLayout.make(for: post, width: 430, fonts: fonts).height)

@@ -214,6 +214,16 @@ func TestMediaAPI(t *testing.T) {
 	if response["icon_url"] != nil || response["banner_url"] == nil {
 		t.Fatalf("clearing icon also changed banner: %v", response)
 	}
+
+	third, thirdStaging := startUpload("image/png")
+	objects.data[thirdStaging] = raw.Bytes()
+	expect("POST", completePath(third), owner, nil, http.StatusOK)
+	photoPost := expect("POST", createPost, owner, map[string]any{"media_ids": []int64{third}}, http.StatusCreated)
+	if photoPost["title"] != "" || photoPost["body"] != "" || len(photoPost["media"].([]any)) != 1 {
+		t.Fatalf("photo-only post: %v", photoPost)
+	}
+	expect("PATCH", fmt.Sprintf("/v1/posts/%d", int64(photoPost["id"].(float64))), owner,
+		map[string]any{"body": ""}, http.StatusOK)
 }
 
 func TestMediaSweepBlocksAttachmentAfterObjectFailure(t *testing.T) {

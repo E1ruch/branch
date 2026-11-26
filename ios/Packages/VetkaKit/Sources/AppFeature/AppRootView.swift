@@ -109,6 +109,7 @@ public struct AppRootView: View {
             }
             ComposeView(service: LiveComposeService(client: app.client, username: app.session.me?.username),
                         storage: UserDefaultsDraftStorage(userID: app.session.me?.id),
+                        author: app.session.me,
                         community: community,
                         continues: continuing.map(ContinuedPost.init)) { post in
                 app.posts.merge([post])

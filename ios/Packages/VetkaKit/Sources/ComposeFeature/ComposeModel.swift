@@ -97,7 +97,7 @@ public struct ContinuedPost: Codable, Hashable, Sendable {
 
     /// Continuing `post` appends after the last part of its story.
     public init(_ post: Post) {
-        self.init(postID: post.id, title: post.title, nextPart: (post.story?.parts ?? 1) + 1)
+        self.init(postID: post.id, title: post.summaryTitle, nextPart: (post.story?.parts ?? 1) + 1)
     }
 }
 
@@ -271,8 +271,8 @@ public final class ComposeModel {
     /// Everything but the community is in order: the publish button is
     /// live and, without a community, opens the settings instead.
     public var isReadyExceptCommunity: Bool {
-        !isFinished && !isPublishing && !isPreparingPhotos && !trimmedTitle.isEmpty
-            && draft.title.count <= Self.maxTitle && draft.body.count <= Self.maxBody
+        !isFinished && !isPublishing && !isPreparingPhotos && hasContent
+            && trimmedTitle.count <= Self.maxTitle && trimmedBody.count <= Self.maxBody
     }
 
     public var canPublish: Bool {
@@ -281,10 +281,10 @@ public final class ComposeModel {
 
     /// What is missing, for the button's accessibility hint.
     public var missing: String? {
+        if !hasContent { return "Добавьте текст, заголовок или фото" }
+        if trimmedTitle.count > Self.maxTitle { return "Заголовок длиннее \(Self.maxTitle) символов" }
+        if trimmedBody.count > Self.maxBody { return "Текст длиннее \(Self.maxBody) символов" }
         if draft.community == nil { return "Выберите сообщество" }
-        if trimmedTitle.isEmpty { return "Напишите заголовок" }
-        if draft.title.count > Self.maxTitle { return "Заголовок длиннее \(Self.maxTitle) символов" }
-        if draft.body.count > Self.maxBody { return "Текст длиннее \(Self.maxBody) символов" }
         return nil
     }
 
@@ -506,10 +506,12 @@ public final class ComposeModel {
 
     static func describe(_ error: APIError) -> (String, Field?) {
         switch error {
-        case let .server(_, "validation_failed", _, field):
-            return field == "body"
-                ? ("Текст слишком длинный.", .body)
-                : ("Заголовок должен быть от 1 до \(maxTitle) символов.", .title)
+        case .server(_, "validation_failed", _, "title"):
+            return ("Заголовок должен быть не длиннее \(maxTitle) символов.", .title)
+        case .server(_, "validation_failed", _, "body"):
+            return ("Текст слишком длинный.", .body)
+        case .server(_, "validation_failed", _, "content"):
+            return ("Добавьте текст, заголовок или фото.", .body)
         case .server(_, "rate_limited", _, _):
             return ("Не больше 10 постов в час. Черновик сохранён — опубликуйте позже.", nil)
         case .server(_, "not_found", _, _):

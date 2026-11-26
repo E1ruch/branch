@@ -255,7 +255,7 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
         case let .vote(direction):
             model.tapVote(id, direction: direction)
         case .share:
-            let share = UIActivityViewController(activityItems: [post.title, Route.shareURL(postID: id)], applicationActivities: nil)
+            let share = UIActivityViewController(activityItems: [post.summaryTitle, Route.shareURL(postID: id)], applicationActivities: nil)
             if let cell = dataSource.indexPath(for: id).flatMap({ collectionView.cellForItem(at: $0) }) {
                 share.popoverPresentationController?.sourceView = cell
             }

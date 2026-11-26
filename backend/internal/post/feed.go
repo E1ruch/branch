@@ -140,7 +140,7 @@ func (s *Service) FeedSubscriptions(ctx context.Context, userID int64, q FeedQue
 // searching for them read the whole table (1.8 s on a million posts).
 const MinSearchLen = 3
 
-// Search matches titles anywhere, hottest first, in pages like a feed.
+// Search matches titles, or the body when a post has no title, hottest first.
 //
 // Hotness, not closeness, is the order on purpose: ordering by similarity
 // made Postgres find, score and sort every match (0.6-1 s for a common word
@@ -159,7 +159,8 @@ func (s *Service) Search(ctx context.Context, query string, q FeedQuery) ([]Post
 	args = append(args, q.Limit)
 	from := `(
 		SELECT p.* FROM posts p JOIN communities c ON c.id = p.community_id
-		WHERE p.deleted_at IS NULL AND NOT p.is_nsfw AND NOT c.is_nsfw AND p.title ILIKE $2 AND ` + where + `
+		WHERE p.deleted_at IS NULL AND NOT p.is_nsfw AND NOT c.is_nsfw
+		  AND (p.title ILIKE $2 OR (p.title = '' AND p.body ILIKE $2)) AND ` + where + `
 		ORDER BY ` + order + fmt.Sprintf(" LIMIT $%d", len(args)) + `
 	)`
 	return s.collect(ctx, fmt.Sprintf(selectPost(true), from)+` ORDER BY `+order, args)

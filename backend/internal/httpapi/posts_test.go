@@ -45,14 +45,18 @@ func TestPostsAPI(t *testing.T) {
 
 	var ids []float64
 	for i := range 3 {
-		status, body := c.call("POST", "/v1/communities/news/posts", author, map[string]any{"title": fmt.Sprintf("Пост %d", i), "body": "текст"})
-		if status != http.StatusCreated {
+		title := fmt.Sprintf("Пост %d", i)
+		if i == 0 {
+			title = ""
+		}
+		status, body := c.call("POST", "/v1/communities/news/posts", author, map[string]any{"title": title, "body": "текст"})
+		if status != http.StatusCreated || body["title"] != title {
 			t.Fatalf("create: %d %v", status, body)
 		}
 		ids = append(ids, body["id"].(float64))
 	}
-	if status, body := c.call("POST", "/v1/communities/news/posts", author, map[string]any{"title": ""}); status != http.StatusUnprocessableEntity || body["error"].(map[string]any)["field"] != "title" {
-		t.Errorf("empty title: %d %v", status, body)
+	if status, body := c.call("POST", "/v1/communities/news/posts", author, map[string]any{"title": ""}); status != http.StatusUnprocessableEntity || body["error"].(map[string]any)["field"] != "content" {
+		t.Errorf("empty post: %d %v", status, body)
 	}
 
 	// Every feed pages through all three posts.

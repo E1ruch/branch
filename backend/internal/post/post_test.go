@@ -91,11 +91,31 @@ func TestCreate(t *testing.T) {
 		t.Errorf("unknown community: %v", err)
 	}
 	var verr *ValidationError
-	if _, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "   "}); !errors.As(err, &verr) || verr.Field != "title" {
-		t.Errorf("empty title: %v", err)
+	if _, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "   ", Body: "\n "}); !errors.As(err, &verr) || verr.Field != "content" {
+		t.Errorf("empty post: %v", err)
+	}
+	if _, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: strings.Repeat("я", maxTitle+1), Body: "x"}); !errors.As(err, &verr) || verr.Field != "title" {
+		t.Errorf("long title: %v", err)
 	}
 	if _, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "x", Body: strings.Repeat("я", maxBody+1)}); !errors.As(err, &verr) || verr.Field != "body" {
 		t.Errorf("long body: %v", err)
+	}
+}
+
+func TestUntitledPost(t *testing.T) {
+	e := newEnv(t)
+	author := testdb.CreateUser(t, e.db, "author")
+	e.community(t, "news", false)
+	p, err := e.svc.Create(e.ctx, author, "news", CreateInput{Title: "  ", Body: "  Наблюдение  "})
+	if err != nil || p.Title != "" || p.Body != "Наблюдение" {
+		t.Fatalf("create without title: %+v, %v", p, err)
+	}
+	if _, err := e.svc.Edit(e.ctx, p.ID, author, "  "); !errors.Is(err, errEmptyPost) {
+		t.Errorf("empty edit: %v", err)
+	}
+	matches, err := e.svc.Search(e.ctx, "блюдение", FeedQuery{Limit: 5})
+	if err != nil || len(matches) != 1 || matches[0].ID != p.ID {
+		t.Errorf("search untitled post: %+v, %v", matches, err)
 	}
 }
 

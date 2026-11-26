@@ -69,7 +69,7 @@ struct StoryPickerView: View {
         } label: {
             HStack(spacing: Spacing.m) {
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text(post.title)
+                    Text(post.summaryTitle)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Color.vetkaTextPrimary)
                         .lineLimit(2)

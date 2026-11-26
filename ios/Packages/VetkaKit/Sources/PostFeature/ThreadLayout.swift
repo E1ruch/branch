@@ -97,14 +97,17 @@ struct PostDetailLayout: Sendable, Equatable {
         let metaFrame = CGRect(x: textX, y: authorFrame.maxY + 1, width: textWidth, height: metaHeight)
         y += max(avatarSize, block) + 12
 
-        let titleHeight = TextMeasure.height(post.title, font: fonts.postTitle, width: contentWidth)
-        let titleFrame = CGRect(x: inset.left, y: y, width: contentWidth, height: titleHeight)
-        y += titleHeight
+        var titleFrame = CGRect.zero
+        if !post.title.isEmpty {
+            let titleHeight = TextMeasure.height(post.title, font: fonts.postTitle, width: contentWidth)
+            titleFrame = CGRect(x: inset.left, y: y, width: contentWidth, height: titleHeight)
+            y += titleHeight
+        }
 
         let body = displayBody(of: post)
         var bodyFrame = CGRect.zero
         if !body.isEmpty {
-            y += 10
+            if !titleFrame.isEmpty { y += 10 }
             let bodyHeight = TextMeasure.height(body, font: fonts.postBody, width: contentWidth)
             bodyFrame = CGRect(x: inset.left, y: y, width: contentWidth, height: bodyHeight)
             y += bodyHeight

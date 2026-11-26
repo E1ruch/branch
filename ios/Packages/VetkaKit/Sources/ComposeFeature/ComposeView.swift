@@ -5,32 +5,31 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// The "+" sheet, in the spirit of Telegram's "new channel": the title in a
-/// rounded field (up to three lines, with a clear button), the text in
-/// another that styles markdown as it is typed. Formatting lives in the
-/// edit menu of a selection, not on screen; the paperclip sits
-/// by the length; the publish settings open from the subtitle under
-/// "Новый пост". Saved drafts open from the navigation bar.
+/// The "+" sheet. The editor shows formatting inline and keeps it in drafts as Markdown.
 public struct ComposeView: View {
     @State private var model: ComposeModel
     private let service: any ComposeService
+    private let author: Me?
     private let onPublished: (Post) -> Void
     @Environment(\.dismiss) private var dismiss
     @FocusState private var titleFocused: Bool
     /// The text is a UITextView: its focus is a plain binding.
     @State private var bodyFocused = false
     @State private var editor = MarkdownEditor()
+    @State private var isShowingTitle = false
     @State private var isShowingSettings = false
+    @State private var isPickingCommunity = false
     @State private var isShowingDrafts = false
     @State private var isShowingScheduleNotice = false
     @State private var isConfirmingClose = false
     @State private var photoSelection: [PhotosPickerItem] = []
 
-    public init(service: any ComposeService, storage: any DraftStorage, community: PickedCommunity? = nil,
+    public init(service: any ComposeService, storage: any DraftStorage, author: Me? = nil, community: PickedCommunity? = nil,
                 continues: ContinuedPost? = nil, onPublished: @escaping (Post) -> Void) {
         _model = State(initialValue: ComposeModel(service: service, storage: storage, community: community,
                                                   continues: continues))
         self.service = service
+        self.author = author
         self.onPublished = onPublished
     }
 
@@ -39,11 +38,7 @@ public struct ComposeView: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Spacing.m) {
-                        titleField
-                        bodyField
-                        if !model.draft.photos.isEmpty {
-                            photoStrip
-                        }
+                        postEditor
                         if let error = model.error {
                             Label(error, systemImage: "exclamationmark.circle.fill")
                                 .font(.footnote)
@@ -70,6 +65,7 @@ public struct ComposeView: View {
                 publishBar
             }
             .background(Color.vetkaSurface)
+            .navigationTitle("Новый пост")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.vetkaSurface, for: .navigationBar)
             .toolbar {
@@ -77,9 +73,6 @@ public struct ComposeView: View {
                     Button("Отмена", action: close)
                         .foregroundStyle(Color.vetkaSecondaryText)
                         .disabled(model.isPublishing || model.isPreparingPhotos)
-                }
-                ToolbarItem(placement: .principal) {
-                    navigationTitle
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: openDrafts) {
@@ -106,8 +99,14 @@ public struct ComposeView: View {
             .sheet(isPresented: $isShowingSettings) {
                 PublishSettingsView(model: model, service: service)
             }
+            .sheet(isPresented: $isPickingCommunity) {
+                communityPicker
+            }
             .sheet(isPresented: $isShowingDrafts) {
-                ComposeDraftsView(model: model)
+                ComposeDraftsView(model: model) { id in
+                    model.openSavedDraft(id)
+                    isShowingTitle = !model.draft.title.isEmpty
+                }
             }
             .alert("Запланировать публикацию", isPresented: $isShowingScheduleNotice) {
                 Button("Понятно", role: .cancel) {}
@@ -129,12 +128,12 @@ public struct ComposeView: View {
         }
         .onChange(of: model.errorField) { _, field in
             switch field {
-            case .title: titleFocused = true
+            case .title: showTitle()
             case .body: bodyFocused = true
             case nil: break
             }
         }
-        .task { titleFocused = true }
+        .task { bodyFocused = true }
         .task(id: photoSelection) {
             guard !photoSelection.isEmpty else { return }
             hideKeyboard()
@@ -146,17 +145,107 @@ public struct ComposeView: View {
         .onDisappear { model.saveNow() }
     }
 
-    // MARK: Title and text
+    // MARK: Editor
 
-    /// A rounded field like Telegram's channel name: up to three lines,
-    /// then it scrolls inside; the cross clears it.
+    private var authorName: String {
+        guard let name = author?.username, !name.isEmpty else { return "Вы" }
+        return name
+    }
+
+    private var postEditor: some View {
+        HStack(alignment: .top, spacing: Spacing.m) {
+            AvatarView(name: authorName, size: 40, imageURL: author?.avatarUrl)
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                authorRow
+                if isShowingTitle {
+                    titleField
+                } else {
+                    Button(action: showTitle) {
+                        Text("Добавить заголовок")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.vetkaSecondaryText)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("compose.addTitle")
+                }
+                bodyField
+                if !model.draft.photos.isEmpty {
+                    photoStrip
+                }
+                attachmentsBar
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var authorRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Spacing.xs) {
+                username
+                communityButton
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 0) {
+                username
+                communityButton
+            }
+        }
+        .frame(minHeight: 28, alignment: .leading)
+    }
+
+    private var username: some View {
+        Text(authorName)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color.vetkaTextPrimary)
+            .lineLimit(1)
+            .accessibilityIdentifier("compose.author")
+    }
+
+    private var communityButton: some View {
+        Button {
+            hideKeyboard()
+            isPickingCommunity = true
+        } label: {
+            HStack(spacing: Spacing.xxs) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+                Text(model.draft.community?.title ?? "Выбрать сообщество")
+                    .font(.subheadline)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(model.draft.community == nil ? Color.vetkaSecondaryText : Color.vetkaBrand)
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Выбрать сообщество")
+        .accessibilityValue(model.draft.community?.title ?? "")
+        .accessibilityIdentifier("compose.community")
+    }
+
+    private var communityPicker: some View {
+        NavigationStack {
+            CommunityPickerView(service: service, selected: model.draft.community?.slug) { community in
+                model.draft.community = community
+                Haptics.selection()
+                isPickingCommunity = false
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") { isPickingCommunity = false }
+                }
+            }
+        }
+    }
+
     private var titleField: some View {
         @Bindable var model = model
-        let hasTitle = !model.draft.title.isEmpty
-        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
         return VStack(alignment: .trailing, spacing: Spacing.xs) {
             HStack(alignment: .top, spacing: Spacing.s) {
-                TextField("Заголовок", text: $model.draft.title, axis: .vertical)
+                TextField("Заголовок (необязательно)", text: $model.draft.title, axis: .vertical)
                     .lineLimit(1...3)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Color.vetkaTextPrimary)
@@ -165,30 +254,20 @@ public struct ComposeView: View {
                     // A hardware Return submits instead of typing a newline.
                     .onSubmit { editor.focus() }
                     .accessibilityIdentifier("compose.title")
-                if hasTitle {
-                    Button {
-                        model.draft.title = ""
-                        titleFocused = true
-                        Haptics.selection()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 17))
-                            .foregroundStyle(Color(uiColor: Palette.textTertiary))
-                            .frame(width: 26, height: 26)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    .accessibilityLabel("Очистить заголовок")
+                Button {
+                    model.draft.title = ""
+                    isShowingTitle = false
+                    editor.focus()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(Color.vetkaSecondaryText)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Убрать заголовок")
             }
-            .padding(.leading, Spacing.m)
-            .padding(.trailing, Spacing.s)
-            .padding(.vertical, Spacing.m)
-            .background(shape.fill(Color.vetkaField))
-            .overlay(shape.strokeBorder(Color.vetkaBrand.opacity(titleFocused ? 0.45 : 0), lineWidth: 1.5))
-            .contentShape(shape)
-            .onTapGesture { titleFocused = true }
 
             if let remaining = model.titleRemaining {
                 Text(remaining >= 0 ? "Осталось \(remaining)" : "Лишних \(-remaining)")
@@ -198,79 +277,57 @@ public struct ComposeView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.vetkaSnappy, value: hasTitle)
-        .animation(.vetkaSnappy, value: titleFocused)
         .animation(.vetkaSnappy, value: model.titleRemaining == nil)
     }
 
-    /// The text in a field of its own that grows with it. Its footer has
-    /// the paperclip and the length.
     private var bodyField: some View {
         @Bindable var model = model
-        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-        let tooLong = model.draft.body.count > ComposeModel.maxBody
-        return VStack(alignment: .leading, spacing: 0) {
-            MarkdownTextView(text: $model.draft.body, isFocused: $bodyFocused, editor: editor,
-                             placeholder: "Текст поста", minHeight: 150)
-            HStack(spacing: Spacing.s) {
-                attachButton
-                Spacer()
-                Text(bodyLength)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(tooLong ? Color.vetkaDanger : Color.vetkaSecondaryText)
-                    .contentTransition(.numericText())
-                    .accessibilityLabel("\(model.draft.body.count) из \(ComposeModel.maxBody) символов")
-            }
-            .padding(.leading, Spacing.s)
-            .padding(.trailing, Spacing.m)
-            .padding(.bottom, Spacing.s)
-            .contentShape(Rectangle())
-            .onTapGesture { bodyFocused = true }
-        }
-        .background(shape.fill(Color.vetkaField))
-        .overlay(shape.strokeBorder(Color.vetkaBrand.opacity(bodyFocused ? 0.45 : 0), lineWidth: 1.5))
-        .animation(.vetkaSnappy, value: bodyFocused)
+        return MarkdownTextView(text: $model.draft.body, isFocused: $bodyFocused, editor: editor,
+                                placeholder: "Что нового?", minHeight: 62)
     }
 
-    private var bodyLength: String {
-        "\(model.draft.body.count.formatted()) / \(ComposeModel.maxBody.formatted())"
+    private func showTitle() {
+        isShowingTitle = true
+        bodyFocused = false
+        titleFocused = true
     }
 
     // MARK: Navigation bar
 
-    /// "Новый пост" and, under it, where it goes: tap to change.
-    private var navigationTitle: some View {
+    private var settingsButton: some View {
         Button(action: openSettings) {
-            VStack(spacing: 1) {
-                Text("Новый пост")
-                    .font(.headline)
-                    .foregroundStyle(Color.vetkaTextPrimary)
-                HStack(spacing: 3) {
-                    Text(settingsSummary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
+            HStack(spacing: Spacing.s) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.body.weight(.medium))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Настройки публикации")
+                        .font(.subheadline.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let settingsSummary {
+                        Text(settingsSummary)
+                            .font(.caption)
+                            .foregroundStyle(Color.vetkaSecondaryText)
+                            .lineLimit(1)
+                    }
                 }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(model.draft.community == nil ? Color.vetkaBrand : Color.vetkaSecondaryText)
-                .contentTransition(.opacity)
             }
-            .frame(maxWidth: 220)
+            .foregroundStyle(Color.vetkaSecondaryText)
+            .frame(minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(model.isPublishing)
-        .animation(.vetkaSnappy, value: settingsSummary)
-        .accessibilityLabel("Настройки публикации: \(settingsSummary)")
+        .accessibilityLabel("Настройки публикации")
+        .accessibilityValue(settingsSummary ?? "")
         .accessibilityIdentifier("compose.settingsSummary")
     }
 
-    private var settingsSummary: String {
-        var parts = [model.draft.community?.title ?? "Выберите сообщество"]
+    private var settingsSummary: String? {
+        var parts: [String] = []
         if let continues = model.draft.continues { parts.append("Часть \(continues.nextPart)") }
         if model.isNSFW { parts.append("18+") }
-        return parts.joined(separator: " · ")
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var moreMenu: some View {
@@ -291,10 +348,14 @@ public struct ComposeView: View {
     private var publishBar: some View {
         VStack(spacing: 0) {
             Divider()
-            publishButton
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.horizontal, Spacing.l)
-                .padding(.vertical, Spacing.s)
+            HStack(spacing: Spacing.s) {
+                settingsButton
+                Spacer(minLength: 0)
+                publishButton
+                    .layoutPriority(1)
+            }
+            .padding(.horizontal, Spacing.l)
+            .padding(.vertical, Spacing.s)
         }
         .background(Color.vetkaSurface)
     }
@@ -330,6 +391,41 @@ public struct ComposeView: View {
 
     // MARK: Attachments
 
+    private var attachmentsBar: some View {
+        HStack(spacing: 0) {
+            attachButton
+            attachmentPlaceholder("Стикеры", id: "compose.stickers") {
+                Image(systemName: "face.smiling")
+            }
+            attachmentPlaceholder("GIF", id: "compose.gif") {
+                Text("GIF")
+                    .font(.caption2.weight(.heavy))
+                    .padding(3)
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(lineWidth: 1.5))
+            }
+            attachmentPlaceholder("Ещё вложения", id: "compose.attachments.more") {
+                Image(systemName: "ellipsis.circle")
+            }
+            if let remaining = model.bodyRemaining {
+                Spacer(minLength: 0)
+                Text(remaining.formatted())
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(remaining < 0 ? Color.vetkaDanger : Color.vetkaSecondaryText)
+                    .accessibilityLabel("\(model.draft.body.count) из \(ComposeModel.maxBody) символов")
+            }
+        }
+    }
+
+    private func attachmentPlaceholder<Icon: View>(_ label: String, id: String, @ViewBuilder icon: () -> Icon) -> some View {
+        Button {} label: {
+            icon().modifier(AttachmentIcon())
+        }
+        .buttonStyle(.plain)
+        .disabled(true)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
+    }
+
     private var attachButton: some View {
         let isPreparing = model.isPreparingPhotos
         return PhotosPicker(selection: $photoSelection, maxSelectionCount: max(1, ComposeModel.maxPhotos - model.draft.photos.count),
@@ -338,20 +434,28 @@ public struct ComposeView: View {
                 if isPreparing {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 15, weight: .semibold))
+                    Image(systemName: "photo")
                 }
             }
-            .foregroundStyle(Color(uiColor: Palette.iconPrimary))
-            .frame(width: 32, height: 32)
-            .background(Circle().fill(Color(uiColor: Palette.surface)))
-            .contentShape(Circle())
+            .modifier(AttachmentIcon())
         }
         .buttonStyle(.plain)
         .disabled(model.draft.photos.count >= ComposeModel.maxPhotos || model.isPreparingPhotos)
         .accessibilityLabel("Прикрепить фото")
         .accessibilityHint("До \(ComposeModel.maxPhotos) фото")
         .accessibilityIdentifier("compose.attachPhotos")
+    }
+
+    private struct AttachmentIcon: ViewModifier {
+        @Environment(\.isEnabled) private var isEnabled
+
+        func body(content: Content) -> some View {
+            content
+                .font(.title3)
+                .foregroundStyle(Color(uiColor: Palette.iconSecondary).opacity(isEnabled ? 1 : 0.75))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
     }
 
     private var photoStrip: some View {
@@ -430,6 +534,7 @@ public struct ComposeView: View {
 
 private struct ComposeDraftsView: View {
     let model: ComposeModel
+    let onOpen: (UUID) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var draftToDelete: SavedDraft?
 
@@ -470,7 +575,7 @@ private struct ComposeDraftsView: View {
     private func draftRow(_ saved: SavedDraft) -> some View {
         HStack(spacing: Spacing.s) {
             Button {
-                model.openSavedDraft(saved.id)
+                onOpen(saved.id)
                 dismiss()
             } label: {
                 VStack(alignment: .leading, spacing: Spacing.xs) {

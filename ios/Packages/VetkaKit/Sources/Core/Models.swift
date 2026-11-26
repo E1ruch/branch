@@ -215,6 +215,15 @@ public struct Post: Codable, Sendable, Hashable, Identifiable {
 
     public var media: [Media] { mediaItems ?? [] }
 
+    /// A short label for search results, story pickers, and sharing.
+    public var summaryTitle: String {
+        if !title.isEmpty { return title }
+        let excerpt = body.prefix(81)
+        let summary = excerpt.prefix(80).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if summary.isEmpty { return media.isEmpty ? "Пост" : "Пост с фото" }
+        return excerpt.count > 80 || bodyTruncated ? summary + "…" : summary
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, title, body, bodyTruncated, isNsfw, score, commentCount, myVote, createdAt, editedAt
         case community, author, story

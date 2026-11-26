@@ -256,7 +256,7 @@ private struct SearchResults: View {
                 Section {
                     ForEach(results.posts.prefix(preview), id: \.self) { id in
                         if let post = model.posts[id] {
-                            Button { go(.post(id: id, title: post.title, community: post.community.title)) } label: {
+                            Button { go(.post(id: id, title: post.summaryTitle, community: post.community.title)) } label: {
                                 PostRow(post: post)
                             }
                             .buttonStyle(.plain)
@@ -336,7 +336,7 @@ private struct PostRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text(post.title)
+            Text(post.summaryTitle)
                 .font(.headline)
                 .foregroundStyle(Color.vetkaTextPrimary)
                 .lineLimit(2)

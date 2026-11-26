@@ -109,6 +109,7 @@ final class PostCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         titleLabel.font = fonts.title
         titleLabel.text = post.title
+        titleLabel.isHidden = post.title.isEmpty
         bodyLabel.font = fonts.body
         bodyLabel.text = layout.bodyText
         bodyLabel.numberOfLines = layout.bodyLines
